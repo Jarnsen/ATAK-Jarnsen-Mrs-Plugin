@@ -101,8 +101,11 @@ public class JarnsenMrsSectorTool extends Tool
     @Override
     public boolean onToolBegin(Bundle extras) {
         attachSelfListener();
-        resetEndpoints();
-        showPointSourceDialog(SelectionStage.ORIGIN);
+        if (originPoint != null && targetPoint != null) {
+            showExistingDrawingDialog();
+        } else {
+            startNewSetup();
+        }
         return true;
     }
 
@@ -238,6 +241,42 @@ public class JarnsenMrsSectorTool extends Tool
 
         activeDialog = dialog;
         dialog.show();
+    }
+
+    private void showExistingDrawingDialog() {
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Jarnsen Mrs")
+                .setItems(
+                        new String[]{
+                                "Neue Darstellung",
+                                "Darstellung entfernen",
+                                "Abbrechen"
+                        },
+                        (ignored, which) -> {
+                            activeDialog = null;
+                            if (which == 0) {
+                                startNewSetup();
+                            } else if (which == 1) {
+                                resetEndpoints();
+                                requestEndTool();
+                            } else {
+                                requestEndTool();
+                            }
+                        }
+                )
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    requestEndTool();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void startNewSetup() {
+        resetEndpoints();
+        showPointSourceDialog(SelectionStage.ORIGIN);
     }
 
     private void chooseSelfPosition(SelectionStage stage) {
