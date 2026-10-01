@@ -5,7 +5,7 @@
 
 buildscript {
     ext.PLUGIN_VERSION = "0.1.0"
-    ext.ATAK_VERSION = "5.5.1.8"
+    ext.ATAK_VERSION = "5.6.0"
 
     def takdevVersion = '3.+'
 
