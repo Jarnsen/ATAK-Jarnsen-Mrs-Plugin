@@ -17,9 +17,8 @@ festgelegte Kartenbild bleibt unverändert.
 4. Das Plugin zeichnet den Sektor vom gewählten Start zum gewählten Ziel.
 5. Wird die eigene Position oder ein beweglicher ATAK-Marker verwendet, wird
    die Darstellung bei Positionsänderungen automatisch neu berechnet.
-6. Zum Entfernen das Plugin erneut antippen und **Darstellung entfernen**
-   wählen. Im gleichen Menü kann auch direkt eine **Neue Darstellung** begonnen
-   werden.
+6. Die eingezeichnete Darstellung oder das Plugin-Symbol antippen. Im Menü kann
+   sie **Bearbeitet** (Start und Ziel neu wählen) oder **Entfernt** werden.
 
 ## Darstellung
 

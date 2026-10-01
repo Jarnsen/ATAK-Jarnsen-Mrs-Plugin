@@ -41,6 +41,7 @@ import java.util.UUID;
  */
 public class JarnsenMrsSectorTool extends Tool
         implements MapEventDispatcher.MapEventDispatchListener,
+        MapEventDispatcher.OnMapEventListener,
         PointMapItem.OnPointChangedListener {
 
     public static final String TOOL_IDENTIFIER =
@@ -67,6 +68,7 @@ public class JarnsenMrsSectorTool extends Tool
     private final MapView mapView;
     private final MapGroup overlayGroup;
     private final TextContainer prompt;
+    private final List<MapItem> overlayItems = new ArrayList<>();
 
     private boolean selectionActive;
     private SelectionStage selectionStage = SelectionStage.NONE;
@@ -145,6 +147,21 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     @Override
+    public void onMapItemMapEvent(MapItem item, MapEvent event) {
+        if (!MapEvent.ITEM_CLICK.equals(event.getType())
+                || selectionActive
+                || activeDialog != null
+                || !overlayItems.contains(item)) {
+            return;
+        }
+
+        ToolManagerBroadcastReceiver.getInstance().startTool(
+                TOOL_IDENTIFIER,
+                new Bundle()
+        );
+    }
+
+    @Override
     public void onPointChanged(PointMapItem item) {
         if (item == null) {
             return;
@@ -174,7 +191,7 @@ public class JarnsenMrsSectorTool extends Tool
             selfMarker = null;
         }
 
-        overlayGroup.clearItems();
+        clearOverlayItems();
 
         ToolManagerBroadcastReceiver.getInstance().unregisterTool(
                 TOOL_IDENTIFIER
@@ -248,8 +265,8 @@ public class JarnsenMrsSectorTool extends Tool
                 .setTitle("Jarnsen Mrs")
                 .setItems(
                         new String[]{
-                                "Neue Darstellung",
-                                "Darstellung entfernen",
+                                "Bearbeiten",
+                                "Entfernen",
                                 "Abbrechen"
                         },
                         (ignored, which) -> {
@@ -472,7 +489,7 @@ public class JarnsenMrsSectorTool extends Tool
         detachEndpointListeners();
         originPoint = null;
         targetPoint = null;
-        overlayGroup.clearItems();
+        clearOverlayItems();
     }
 
     private void setOrigin(GeoPointMetaData point, MapItem item) {
@@ -528,7 +545,7 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void redraw() {
-        overlayGroup.clearItems();
+        clearOverlayItems();
         attachSelfListener();
 
         if (originPoint == null || targetPoint == null) {
@@ -883,7 +900,7 @@ public class JarnsenMrsSectorTool extends Tool
         line.setStrokeColor(color);
         line.setStrokeWeight(weight);
         line.setBasicLineStyle(lineStyle);
-        line.setClickable(false);
+        line.setClickable(true);
         line.setEditable(false);
         line.setMovable(false);
         line.setMetaBoolean("nevercot", true);
@@ -894,10 +911,21 @@ public class JarnsenMrsSectorTool extends Tool
     private void addLocalItem(MapItem item) {
         item.setMetaBoolean("nevercot", true);
         item.setMetaBoolean("addToObjList", false);
-        item.setClickable(false);
+        item.setClickable(true);
         item.setEditable(false);
         item.setMovable(false);
         overlayGroup.addItem(item);
+        overlayItems.add(item);
+        mapView.getMapEventDispatcher().addMapItemEventListener(item, this);
+    }
+
+    private void clearOverlayItems() {
+        MapEventDispatcher dispatcher = mapView.getMapEventDispatcher();
+        for (MapItem item : overlayItems) {
+            dispatcher.removeMapItemEventListener(item, this);
+        }
+        overlayItems.clear();
+        overlayGroup.clearItems();
     }
 
     private static GeoPointMetaData[] wrap(List<GeoPoint> points) {
