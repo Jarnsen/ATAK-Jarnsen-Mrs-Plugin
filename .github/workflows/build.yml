@@ -117,11 +117,23 @@ jobs:
           echo "Compile stub:"
           sha256sum sdk/main.jar
 
-      - name: Build Jarnsen Mrs Plugin for ATAK 5.6.0
+      - name: Build RELEASE Jarnsen Mrs Plugin for ATAK 5.6.0
         shell: bash
         run: |
           set -euxo pipefail
-          gradle --no-daemon --stacktrace :app:assembleCivDebug
+          gradle --no-daemon --stacktrace :app:assembleCivRelease
+
+      - name: Verify release APK signature
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APK="$(find app/build/outputs -type f -name '*.apk' | head -n 1)"
+          test -f "$APK"
+          echo "APK=$APK"
+          APKSIGNER="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          sha256sum "$APK"
 
       - name: Show APKs
         if: always()
@@ -133,6 +145,6 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Jarnsen-Mrs-Plugin-ATAK-5.6.0
+          name: Jarnsen-Mrs-Plugin-ATAK-5.6.0-RELEASE
           path: app/build/outputs/**/*.apk
           if-no-files-found: error
