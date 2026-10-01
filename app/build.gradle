@@ -83,6 +83,13 @@ android {
         buildConfig = true
     }
 
+    // Required by ATAK TakDev for correct release-plugin signing.
+    bundle {
+        storeArchive {
+            enable = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
