@@ -1,0 +1,114 @@
+name: Build ATAK Plugin
+
+on:
+  push:
+    branches:
+      - main
+      - feat/**
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android platform 36
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDKROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDKROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          echo "SDKROOT=$SDKROOT"
+          echo "SDKMANAGER=$SDKMANAGER"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --version
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Download ATAK-CIV 5.5.1.8 SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -fL --retry 5 --retry-delay 3 \
+            -o /tmp/atak-sdk.zip \
+            "https://github.com/TAK-Product-Center/atak-civ/releases/download/5.5.1.8/ATAK-CIV-5.5.1.8-SDK.zip"
+          mkdir -p /tmp/atak-sdk
+          unzip -q /tmp/atak-sdk.zip -d /tmp/atak-sdk
+
+      - name: Prepare ATAK DevKit files
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          TAKDEV="$(find /tmp/atak-sdk -type f -name 'atak-gradle-takdev*.jar' | head -n 1)"
+          MAINJAR="$(find /tmp/atak-sdk -type f -name 'main.jar' | head -n 1)"
+          KEYSTORE="$(find /tmp/atak-sdk -type f -name 'android_keystore' | head -n 1)"
+          MAPPING="$(find /tmp/atak-sdk -type f -name 'mapping.txt' | head -n 1)"
+          CORERULES="$(find /tmp/atak-sdk -type f -name 'proguard-release-keep.txt' | head -n 1)"
+
+          echo "TAKDEV=$TAKDEV"
+          echo "MAINJAR=$MAINJAR"
+          echo "KEYSTORE=$KEYSTORE"
+          echo "MAPPING=$MAPPING"
+          echo "CORERULES=$CORERULES"
+
+          test -n "$TAKDEV"
+          test -n "$MAINJAR"
+          test -n "$KEYSTORE"
+
+          cp "$TAKDEV" ./atak-gradle-takdev.jar
+
+          mkdir -p sdk
+          cp "$MAINJAR" sdk/main.jar
+          cp "$KEYSTORE" sdk/android_keystore
+
+          if [ -n "$MAPPING" ]; then
+            cp "$MAPPING" sdk/mapping.txt
+          else
+            : > sdk/mapping.txt
+          fi
+
+          if [ -n "$CORERULES" ]; then
+            cp "$CORERULES" sdk/proguard-release-keep.txt
+          else
+            : > sdk/proguard-release-keep.txt
+          fi
+
+      - name: Build CIV debug APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          gradle --no-daemon --stacktrace :app:assembleCivDebug
+
+      - name: Show APKs
+        if: always()
+        shell: bash
+        run: |
+          find app/build/outputs -type f -name '*.apk' -print 2>/dev/null || true
+
+      - name: Upload plugin APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarnsen-Mrs-Plugin-ATAK-5.5.1.8
+          path: app/build/outputs/**/*.apk
+          if-no-files-found: error
