@@ -53,7 +53,7 @@ Gitternord/Strich ausgegeben wird.
 ## Technische Basis
 
 Das Projekt orientiert sich an der offiziellen ATAK-Plugin-Struktur und ist
-aktuell für **ATAK-CIV 5.5.1.8** konfiguriert.
+aktuell für **ATAK-CIV 5.6.0** konfiguriert.
 
 Paket/Namespace:
 
@@ -96,3 +96,18 @@ Gradle-Installation gebaut werden.
 Die erste Version bildet exakt den besprochenen Entwurf ab. Später können die
 Werte als Einstellungen ergänzt werden, z. B. Sektorbreite, Maximalreichweite,
 Ringabstand, Farben sowie Strich/Grad-Umschaltung.
+
+
+## CI-Build für ATAK 5.6.0
+
+Die GitHub-Action baut das Plugin mit `ATAK_VERSION = 5.6.0`.
+
+Da zum aktuellen öffentlichen ATAK-CIV-Quellstand noch kein vollständiges
+binäres 5.6.0-SDK als Release-Artefakt veröffentlicht ist, erzeugt CI den
+aktuellen `atak-gradle-takdev` direkt aus dem offiziellen ATAK-CIV-5.6-Quellstand
+und verwendet daraus außerdem Signierschlüssel und Core-Proguard-Regeln.
+
+Der ältere öffentliche `main.jar` aus dem 5.5.1.8-SDK wird ausschließlich als
+Compile-Stub verwendet. Die vom Plugin verwendeten ATAK-APIs wurden zusätzlich
+gegen den offiziellen 5.6.0-Quellstand geprüft. Zur Laufzeit liefert ATAK 5.6.0
+die tatsächlichen Core-Klassen.
