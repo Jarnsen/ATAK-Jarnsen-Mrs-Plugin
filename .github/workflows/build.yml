@@ -11,17 +11,13 @@ on:
 permissions:
   contents: read
 
-env:
-  ATAK_VERSION: "5.6.0"
-  ATAK_CIV_SOURCE_SHA: "9f6893dd657feacc35ec5de03dad721c2e44170e"
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout plugin
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -30,121 +26,105 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android build environment
+      - name: Install Android platform 36
         shell: bash
         run: |
           set -euxo pipefail
           SDKROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           SDKMANAGER="$(find "$SDKROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
-          echo "SDKROOT=$SDKROOT"
-          echo "SDKMANAGER=$SDKMANAGER"
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" \
-            "platforms;android-35" \
-            "platforms;android-36" \
-            "build-tools;35.0.0" \
-            "build-tools;36.0.0" \
-            "ndk;25.1.8937393"
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.14.3"
 
-      - name: Checkout official ATAK-CIV 5.6 source
+      - name: Download ATAK DevKit API
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf /tmp/atak-civ
-          GIT_LFS_SKIP_SMUDGE=1 git clone --filter=blob:none --no-checkout \
-            https://github.com/TAK-Product-Center/atak-civ.git /tmp/atak-civ
-          git -C /tmp/atak-civ fetch --depth 1 origin "$ATAK_CIV_SOURCE_SHA"
-          git -C /tmp/atak-civ checkout --detach "$ATAK_CIV_SOURCE_SHA"
-
-          grep -n "ATAK_VERSION = '5.6.0'" \
-            /tmp/atak-civ/plugin-examples/helloworld/app/build.gradle
-
-      - name: Build ATAK 5.6 TakDev Gradle plugin
-        shell: bash
-        working-directory: /tmp/atak-civ/atak-gradle-takdev
-        run: |
-          set -euxo pipefail
-          chmod +x ./gradlew
-          ./gradlew --no-daemon :atak-gradle-takdev:jar
-
-      - name: Download public ATAK API compile stub
-        shell: bash
-        run: |
-          set -euxo pipefail
-          rm -rf /tmp/atak-public-sdk /tmp/atak-public-sdk.zip
+          rm -rf /tmp/atak-sdk /tmp/atak-sdk.zip
           curl -fL --retry 5 --retry-delay 3 \
-            -o /tmp/atak-public-sdk.zip \
+            -o /tmp/atak-sdk.zip \
             "https://github.com/TAK-Product-Center/atak-civ/releases/download/5.5.1.8/ATAK-CIV-5.5.1.8-SDK.zip"
-          mkdir -p /tmp/atak-public-sdk
-          unzip -q /tmp/atak-public-sdk.zip -d /tmp/atak-public-sdk
+          mkdir -p /tmp/atak-sdk
+          unzip -q /tmp/atak-sdk.zip -d /tmp/atak-sdk
 
-      - name: Prepare ATAK 5.6 DevKit files
+      - name: Download ATAK 5.6 public signing keystore
         shell: bash
         run: |
           set -euxo pipefail
+          curl -fL --retry 5 --retry-delay 3 \
+            -o /tmp/atak-56-keystore \
+            "https://raw.githubusercontent.com/TAK-Product-Center/atak-civ/main/atak/android_keystore"
+          keytool -list -v \
+            -keystore /tmp/atak-56-keystore \
+            -storepass tnttnt \
+            -alias wintec_mapping
 
-          TAKDEV="$(find /tmp/atak-civ/atak-gradle-takdev/atak-gradle-takdev/build/libs -type f -name 'atak-gradle-takdev*.jar' | head -n 1)"
-          MAINJAR="$(find /tmp/atak-public-sdk -type f -name 'main.jar' | head -n 1)"
-          KEYSTORE="/tmp/atak-civ/atak/android_keystore"
-          CORERULES="/tmp/atak-civ/atak/ATAK/app/proguard-release-keep.txt"
+      - name: Verify public key is accepted by ATAK 5.6 Release
+        shell: bash
+        run: |
+          set -euxo pipefail
+          keytool -exportcert \
+            -keystore /tmp/atak-56-keystore \
+            -storepass tnttnt \
+            -alias wintec_mapping \
+            -file /tmp/atak-plugin-cert.der
 
-          echo "TAKDEV=$TAKDEV"
-          echo "MAINJAR=$MAINJAR"
-          echo "KEYSTORE=$KEYSTORE"
-          echo "CORERULES=$CORERULES"
+          CERTHEX="$(xxd -p -c 1000000 /tmp/atak-plugin-cert.der | tr -d '\n' | tr 'A-F' 'a-f')"
+          curl -fL --retry 5 --retry-delay 3 \
+            -o /tmp/AtakPluginRegistry.java \
+            "https://raw.githubusercontent.com/TAK-Product-Center/atak-civ/main/atak/ATAK/app/src/main/java/com/atak/plugins/impl/AtakPluginRegistry.java"
 
-          test -f "$TAKDEV"
-          test -f "$MAINJAR"
-          test -f "$KEYSTORE"
-          test -f "$CORERULES"
+          if grep -Fqi "$CERTHEX" /tmp/AtakPluginRegistry.java; then
+            echo "Public ATAK keystore certificate is in the ATAK 5.6 acceptable plugin key list."
+          else
+            echo "Public ATAK keystore certificate is NOT in the ATAK 5.6 acceptable plugin key list."
+            exit 42
+          fi
+
+      - name: Prepare ATAK DevKit files
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TAKDEV="$(find /tmp/atak-sdk -type f -name 'atak-gradle-takdev*.jar' | head -n 1)"
+          MAINJAR="$(find /tmp/atak-sdk -type f -name 'main.jar' | head -n 1)"
+          MAPPING="$(find /tmp/atak-sdk -type f -name 'mapping.txt' | head -n 1)"
+          CORERULES="$(find /tmp/atak-sdk -type f -name 'proguard-release-keep.txt' | head -n 1)"
+
+          test -n "$TAKDEV"
+          test -n "$MAINJAR"
 
           cp "$TAKDEV" ./atak-gradle-takdev.jar
-
           mkdir -p sdk
           cp "$MAINJAR" sdk/main.jar
-          cp "$KEYSTORE" sdk/android_keystore
-          cp "$CORERULES" sdk/proguard-release-keep.txt
-          : > sdk/mapping.txt
+          cp /tmp/atak-56-keystore sdk/android_keystore
 
-          echo "5.6 source signing key:"
-          sha256sum sdk/android_keystore
-          echo "Compile stub:"
-          sha256sum sdk/main.jar
+          if [ -n "$MAPPING" ]; then cp "$MAPPING" sdk/mapping.txt; else : > sdk/mapping.txt; fi
+          if [ -n "$CORERULES" ]; then cp "$CORERULES" sdk/proguard-release-keep.txt; else : > sdk/proguard-release-keep.txt; fi
 
-      - name: Build RELEASE Jarnsen Mrs Plugin for ATAK 5.6.0
+      - name: Build CIV debug APK for ATAK 5.6.0
         shell: bash
         run: |
           set -euxo pipefail
-          gradle --no-daemon --stacktrace :app:assembleCivRelease
+          gradle --no-daemon --stacktrace :app:assembleCivDebug
 
-      - name: Verify release APK signature
+      - name: Verify APK certificate
         shell: bash
         run: |
           set -euxo pipefail
           APK="$(find app/build/outputs -type f -name '*.apk' | head -n 1)"
-          test -f "$APK"
-          echo "APK=$APK"
-          APKSIGNER="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -x "$APKSIGNER"
+          test -n "$APK"
+          APKSIGNER="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
-          sha256sum "$APK"
-
-      - name: Show APKs
-        if: always()
-        shell: bash
-        run: |
-          find app/build/outputs -type f -name '*.apk' -print 2>/dev/null || true
 
       - name: Upload plugin APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Jarnsen-Mrs-Plugin-ATAK-5.6.0-RELEASE
+          name: Jarnsen-Mrs-Plugin-ATAK-5.6.0
           path: app/build/outputs/**/*.apk
           if-no-files-found: error
