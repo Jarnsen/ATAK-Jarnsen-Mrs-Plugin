@@ -53,7 +53,7 @@ Gitternord/Strich ausgegeben wird.
 ## Technische Basis
 
 Das Projekt orientiert sich an der offiziellen ATAK-Plugin-Struktur und ist
-aktuell für **ATAK-CIV 5.5.1.8** konfiguriert.
+aktuell für **ATAK-CIV 5.6.0** konfiguriert.
 
 Paket/Namespace:
 
