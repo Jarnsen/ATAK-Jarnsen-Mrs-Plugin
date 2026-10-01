@@ -1,0 +1,18 @@
+# Android / Gradle
+.gradle/
+build/
+**/build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ATAK DevKit - local only
+atak-gradle-takdev.jar
+
+# Signing / secrets
+*.jks
+*.keystore
+keystore.properties
