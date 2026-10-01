@@ -44,15 +44,17 @@ jobs:
         with:
           gradle-version: "8.14.3"
 
-      - name: Download ATAK-CIV 5.5.1.8 SDK
+      - name: Download official ATAK-CIV 5.6.0 plugin SDK
         shell: bash
         run: |
           set -euxo pipefail
+          rm -rf /tmp/atak-sdk /tmp/atak-sdk.zip
           curl -fL --retry 5 --retry-delay 3 \
             -o /tmp/atak-sdk.zip \
-            "https://github.com/TAK-Product-Center/atak-civ/releases/download/5.5.1.8/ATAK-CIV-5.5.1.8-SDK.zip"
+            "https://media.githubusercontent.com/media/TAK-Product-Center/atak-civ/main/pluginsdk.zip"
           mkdir -p /tmp/atak-sdk
           unzip -q /tmp/atak-sdk.zip -d /tmp/atak-sdk
+          find /tmp/atak-sdk -maxdepth 4 -type f -print | sort
 
       - name: Prepare ATAK DevKit files
         shell: bash
@@ -109,6 +111,6 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Jarnsen-Mrs-Plugin-ATAK-5.5.1.8
+          name: Jarnsen-Mrs-Plugin-ATAK-5.6.0
           path: app/build/outputs/**/*.apk
           if-no-files-found: error
