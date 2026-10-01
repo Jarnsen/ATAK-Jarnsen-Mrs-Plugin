@@ -1,6 +1,6 @@
 # Geometrie des Jarnsen Mrs Plugin
 
-## Feste Werte der ersten Version
+## Feste Geometriewerte
 
 | Wert | Einstellung |
 |---|---:|
@@ -17,13 +17,15 @@
 
 ## Bezugssystem
 
-Der Kartenpunkt wird geodätisch vom Self-Marker aus berechnet. Die
-Sektorgeometrie benutzt den True-Bearing zum Ziel. Das ist korrekt, weil die
-Öffnung von ±600 Strich relativ zur Mittellinie definiert ist.
+Die Kartenpunkte werden geodätisch vom gewählten Startpunkt aus berechnet. Der
+Start- und Zielpunkt kann jeweils die eigene Position, eine eingegebene
+Dezimalgrad-Koordinate oder ein Punkt auf der Karte sein. Die Sektorgeometrie
+benutzt den True-Bearing vom Start zum Ziel. Das ist korrekt, weil die Öffnung
+von ±600 Strich relativ zur Mittellinie definiert ist.
 
 Die sichtbare Richtungsangabe wird auf Gitternord umgerechnet:
 
-1. True-Bearing Self → Ziel
+1. True-Bearing Start → Ziel
 2. ATAK Grid Convergence bestimmen
 3. Grid-Bearing = True-Bearing - Grid Convergence
 4. Grid-Bearing auf 0…360° normalisieren

@@ -1,26 +1,26 @@
 # Jarnsen Mrs Plugin
 
-ATAK-CIV Plugin für eine einfache Mörser-/Richtungsdarstellung vom eigenen
-Standort zu einem ausgewählten Kartenpunkt.
+ATAK-CIV Plugin für eine einfache Mörser-/Richtungsdarstellung zwischen einem
+frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.1.0** ist die erste Implementierung des gemeinsam festgelegten
-Kartenbildes.
+Version **0.2.0** ergänzt eine freie Auswahl von Start- und Zielpunkt; das
+festgelegte Kartenbild bleibt unverändert.
 
 ### Bedienung
 
 1. In ATAK das Werkzeug **Jarnsen Mrs Plugin** antippen.
-2. Einen vorhandenen Punkt/Marker oder eine freie Stelle auf der Karte antippen.
-3. Das Plugin zeichnet den Sektor vom eigenen ATAK-Self-Marker zum gewählten
-   Ziel.
-4. Bewegt sich der eigene Standort, wird die Darstellung automatisch neu
-   berechnet. Wird ein beweglicher ATAK-Punkt als Ziel gewählt, folgt die
-   Darstellung auch diesem Ziel.
+2. Den Startpunkt wählen: **Eigene Position**, **Koordinaten eingeben** oder
+   **Auf der Karte wählen**.
+3. Den Zielpunkt auf die gleiche Weise wählen.
+4. Das Plugin zeichnet den Sektor vom gewählten Start zum gewählten Ziel.
+5. Wird die eigene Position oder ein beweglicher ATAK-Marker verwendet, wird
+   die Darstellung bei Positionsänderungen automatisch neu berechnet.
 
 ## Darstellung
 
-- Mittellinie: eigener Standort → ausgewähltes Ziel
+- Mittellinie: ausgewählter Startpunkt → ausgewähltes Ziel
 - Richtung: **Gitternord**
 - Winkelmaß: **NATO 6400 Strich**
 - Sektor: **±600 Strich** um die Mittellinie
