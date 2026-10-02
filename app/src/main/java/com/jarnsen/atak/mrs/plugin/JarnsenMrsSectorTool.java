@@ -3402,14 +3402,7 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private static int degreesToMil(double degrees) {
-        int mil = (int) Math.round(
-                normalizeDegrees(degrees) * 6400.0 / 360.0
-        );
-        mil %= 6400;
-        if (mil < 0) {
-            mil += 6400;
-        }
-        return mil;
+        return MrsCoreLogic.degreesToMil(degrees);
     }
 
     private static String formatRange(double meters) {
@@ -3486,10 +3479,6 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private static double normalizeDegrees(double value) {
-        double out = value % 360.0;
-        if (out < 0.0) {
-            out += 360.0;
-        }
-        return out;
+        return MrsCoreLogic.normalizeDegrees(value);
     }
 }
