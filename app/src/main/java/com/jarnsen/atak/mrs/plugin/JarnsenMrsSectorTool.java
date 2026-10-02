@@ -22,6 +22,8 @@ import com.atakmap.android.toolbar.Tool;
 import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
 import com.atakmap.android.toolbar.widgets.TextContainer;
 import com.atakmap.android.util.ATAKUtilities;
+import com.atakmap.coremap.conversions.CoordinateFormat;
+import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
@@ -263,6 +265,10 @@ public class JarnsenMrsSectorTool extends Tool
     private void showExistingDrawingDialog() {
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle("Jarnsen Mrs")
+                .setMessage(
+                        "Zielkoordinate (MGRS)\n"
+                                + formatTargetCoordinate()
+                )
                 .setItems(
                         new String[]{
                                 "Bearbeiten",
@@ -567,6 +573,7 @@ public class JarnsenMrsSectorTool extends Tool
         double trueBearing = normalizeDegrees(own.bearingTo(target));
         double gridBearing = toGridBearing(own, target, trueBearing);
         int gridMil = degreesToMil(gridBearing);
+        double bracketAnchor = targetDistance / 2.0;
 
         addSectorFill(own, trueBearing);
         addSectorBoundary(own, trueBearing - HALF_SECTOR_DEG);
@@ -583,21 +590,25 @@ public class JarnsenMrsSectorTool extends Tool
 
         addCenterLine(own, target);
         addArrowHead(target, trueBearing);
-        addTargetLabel(target, trueBearing);
+        addTargetMarker(target, trueBearing);
 
-        addCenterBracket(own, trueBearing);
+        addCenterBracket(own, trueBearing, bracketAnchor);
         addBracketLabel(
                 own,
                 trueBearing,
-                4000.0,
-                185.0,
-                String.format(Locale.GERMANY, "%04d Str GN", gridMil)
+                bracketAnchor,
+                120.0,
+                String.format(
+                        Locale.GERMANY,
+                        "MRS 01  GR %04d mils",
+                        gridMil
+                )
         );
         addBracketLabel(
                 own,
                 trueBearing,
-                4000.0,
-                -185.0,
+                bracketAnchor,
+                -120.0,
                 formatTargetDistance(targetDistance)
         );
     }
@@ -772,22 +783,7 @@ public class JarnsenMrsSectorTool extends Tool
         ));
     }
 
-    private void addTargetLabel(GeoPoint target, double bearing) {
-        List<GeoPoint> pts = new ArrayList<>();
-        pts.add(GeoCalculations.pointAtDistance(target, bearing, 35.0));
-        pts.add(GeoCalculations.pointAtDistance(target, bearing, 250.0));
-
-        Polyline label = makePolyline(
-                pts,
-                Color.argb(1, 255, 255, 255),
-                0.1,
-                Shape.BASIC_LINE_STYLE_SOLID
-        );
-        label.toggleMetaData("labels_on", true);
-        label.setLineLabel("ZIEL");
-        label.setLabelTextSize(16);
-        addLocalItem(label);
-
+    private void addTargetMarker(GeoPoint target, double bearing) {
         double d = 45.0;
 
         List<GeoPoint> cross1 = new ArrayList<>();
@@ -817,8 +813,10 @@ public class JarnsenMrsSectorTool extends Tool
      * normal horizontal ")( ". The upper and lower curves open toward the
      * centerline.
      */
-    private void addCenterBracket(GeoPoint own, double bearing) {
-        final double anchor = 4000.0;
+    private void addCenterBracket(
+            GeoPoint own,
+            double bearing,
+            double anchor) {
         final double halfWidth = 310.0;
 
         List<GeoPoint> upper = new ArrayList<>();
@@ -1016,18 +1014,21 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private static String formatTargetDistance(double meters) {
-        if (meters < 1000.0) {
-            return String.format(
-                    Locale.GERMANY,
-                    "%.0f m",
-                    meters
-            );
-        }
-
         return String.format(
                 Locale.GERMANY,
-                "%.1f km",
-                meters / 1000.0
+                "%,.0f m",
+                meters
+        );
+    }
+
+    private String formatTargetCoordinate() {
+        if (targetPoint == null || !isUsable(targetPoint.get())) {
+            return "Nicht verfügbar";
+        }
+
+        return CoordinateFormatUtilities.formatToString(
+                targetPoint.get(),
+                CoordinateFormat.MGRS
         );
     }
 
