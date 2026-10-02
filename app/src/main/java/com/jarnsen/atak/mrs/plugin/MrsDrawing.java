@@ -68,6 +68,27 @@ final class MrsDrawing {
         return d;
     }
 
+    MrsDrawing copyAsNew() {
+        MrsDrawing d = new MrsDrawing();
+        d.label = label;
+        d.originLat = originLat;
+        d.originLon = originLon;
+        d.targetLat = targetLat;
+        d.targetLon = targetLon;
+        d.originSelf = originSelf;
+        d.targetSelf = targetSelf;
+        d.fillColor = fillColor;
+        d.fillAlpha = fillAlpha;
+        d.showHalfKm = showHalfKm;
+        d.showKm = showKm;
+        d.showRangeLabels = showRangeLabels;
+        d.showBracket = showBracket;
+        d.showTargetMarker = showTargetMarker;
+        d.showFill = showFill;
+        d.updatedAt = System.currentTimeMillis();
+        return d;
+    }
+
     GeoPointMetaData originPoint() {
         return GeoPointMetaData.wrap(new GeoPoint(originLat, originLon));
     }
