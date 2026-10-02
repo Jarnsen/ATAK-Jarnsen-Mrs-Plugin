@@ -5,11 +5,12 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.2.3** ergänzt eine freie Auswahl von Start- und Zielpunkt, das
+Version **0.2.4** ergänzt eine freie Auswahl von Start- und Zielpunkt, das
 Bearbeiten und Entfernen per Antippen sowie eine automatisch mittig auf der
 Ziellinie positionierte Klammer und eine Live-Vorschau beim Verschieben des
 Ziels auf der Karte. Beim Abschluss kann die Sektorfläche schnell eingefärbt
-werden.
+werden. Das transparente Werkzeugleisten-Icon zeigt das vereinfachte
+Mörserzeichen mit Kreis, Mittellinie, Pfeil und drei Querstrichen.
 
 ### Bedienung
 
