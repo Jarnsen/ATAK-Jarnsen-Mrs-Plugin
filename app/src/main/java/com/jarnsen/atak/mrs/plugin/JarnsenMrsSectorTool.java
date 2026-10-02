@@ -1398,7 +1398,7 @@ public class JarnsenMrsSectorTool extends Tool
             android.content.pm.PackageInfo info = mapView.getContext()
                     .getPackageManager()
                     .getPackageInfo(
-                            mapView.getContext().getPackageName(),
+                            BuildConfig.APPLICATION_ID,
                             android.content.pm.PackageManager.GET_SIGNATURES
                     );
 
