@@ -5,12 +5,12 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.2.4** ergänzt eine freie Auswahl von Start- und Zielpunkt, das
-Bearbeiten und Entfernen per Antippen sowie eine automatisch mittig auf der
-Ziellinie positionierte Klammer und eine Live-Vorschau beim Verschieben des
-Ziels auf der Karte. Beim Abschluss kann die Sektorfläche schnell eingefärbt
-werden. Das transparente Werkzeugleisten-Icon zeigt das vereinfachte
-Mörserzeichen mit Kreis, Mittellinie, Pfeil und drei Querstrichen.
+Version **0.3.0** erweitert das Plugin zu einem persistenten Arbeitsbereich mit
+mehreren Mrs-Zeichnungen. Zeichnungen bleiben nach einem ATAK-Neustart erhalten,
+können direkt auf der Karte geöffnet, dupliziert, bearbeitet und entfernt werden.
+Start und Ziel können per Karte, MGRS oder Breite/Länge gesetzt werden. Für
+bestehende Zeichnungen stehen direkte Drag-Griffe sowie Rückgängig/Wiederholen
+zur Verfügung.
 
 ### Bedienung
 
@@ -108,9 +108,9 @@ Gradle-Installation gebaut werden.
 
 ## Noch bewusst fest eingestellt
 
-Die erste Version bildet exakt den besprochenen Entwurf ab. Später können die
-Werte als Einstellungen ergänzt werden, z. B. Sektorbreite, Maximalreichweite,
-Ringabstand, Farben sowie Strich/Grad-Umschaltung.
+Die maximale Sektorreichtiefe bleibt fest auf **8 km**. Eine variable Reichweite
+ist bewusst nicht vorgesehen. Andere Darstellungsoptionen werden pro Zeichnung
+verwaltet.
 
 
 ## CI-Build für ATAK 5.6.0
@@ -128,13 +128,21 @@ gegen den offiziellen 5.6.0-Quellstand geprüft. Zur Laufzeit liefert ATAK 5.6.0
 die tatsächlichen Core-Klassen.
 
 
-## Version 0.2.5
+## Version 0.3.0
 
-- **Schließen** beendet das Werkzeug jetzt explizit über ATAKs Tool-Manager.
-- **Bearbeiten** öffnet ein echtes Bearbeitungsmenü für Startpunkt, Zielpunkt,
-  MGRS-Ziel, Beschriftung und Farbe.
-- Start und Ziel können direkt als **MGRS** eingegeben werden.
-- Die zentrale gedrehte `)(`-Klammer passt ihre Darstellungsgröße automatisch
-  an die aktuelle Karten-Zoomstufe an.
-- Jede Zeichnung erhält eine optionale Beschriftung. Ohne eigene Eingabe wird
-  automatisch fortlaufend `Mrs 1`, `Mrs 2`, ... verwendet.
+- mehrere gleichzeitig sichtbare, persistent gespeicherte Mrs-Zeichnungen
+- direktes Antippen der Darstellung für Schnellaktionen
+- direkte Drag-Griffe für Start und Ziel
+- Live-Vorschau beim Ziehen vor dem Loslassen, auch bei Marker-Drag-Events
+- MGRS-Eingabe mit Zwischenablage, Sofortprüfung und letzter Eingabe
+- Rückgängig/Wiederholen
+- Duplizieren, Bearbeiten und Löschen
+- per Zeichnung ein-/ausblendbar: 500-m-Bögen, 1-km-Bögen,
+  Entfernungsbeschriftungen, Klammer, Zielkreuz und Sektorfüllung
+- einstellbare Transparenz der Sektorfüllung
+- zoomadaptive Pfeil-, Zielkreuz-, Klammer- und Tick-Geometrie
+- Diagnoseansicht mit ATAK-/Plugin-Version, Signaturstatus, Zeichnungszahl,
+  Undo/Redo-Stand und letzter fehlerhafter Eingabe
+- maximale Sektorreichtiefe bleibt bewusst **fest bei 8 km**
+
+Die Reichweite ist **nicht variabel konfigurierbar**.
