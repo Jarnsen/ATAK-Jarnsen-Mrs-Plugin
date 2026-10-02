@@ -108,9 +108,8 @@ Gradle-Installation gebaut werden.
 
 ## Noch bewusst fest eingestellt
 
-Die maximale Sektorreichtiefe bleibt fest auf **8 km**. Eine variable Reichweite
-ist bewusst nicht vorgesehen. Andere Darstellungsoptionen werden pro Zeichnung
-verwaltet.
+Die maximale Sektorreichtiefe bleibt fest auf **8 km**. Andere
+Darstellungsoptionen werden pro Zeichnung verwaltet.
 
 
 ## CI-Build für ATAK 5.6.0
@@ -145,4 +144,3 @@ die tatsächlichen Core-Klassen.
   Undo/Redo-Stand und letzter fehlerhafter Eingabe
 - maximale Sektorreichtiefe bleibt bewusst **fest bei 8 km**
 
-Die Reichweite ist **nicht variabel konfigurierbar**.
