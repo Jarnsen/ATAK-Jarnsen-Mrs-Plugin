@@ -4,6 +4,9 @@ import android.app.AlertDialog;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.text.InputType;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.style.ForegroundColorSpan;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -66,6 +69,22 @@ public class JarnsenMrsSectorTool extends Tool
             Color.argb(42, 33, 182, 199);
     private static final int COLOR_TARGET =
             Color.rgb(255, 68, 68);
+    private static final String[] SECTOR_COLOR_NAMES = {
+            "Weiß",
+            "Rot",
+            "Gelb",
+            "Blau",
+            "Grün",
+            "Schwarz"
+    };
+    private static final int[] SECTOR_COLORS = {
+            Color.WHITE,
+            Color.rgb(220, 45, 45),
+            Color.rgb(255, 214, 0),
+            Color.rgb(40, 120, 255),
+            Color.rgb(40, 180, 90),
+            Color.BLACK
+    };
 
     private final MapView mapView;
     private final MapGroup overlayGroup;
@@ -74,6 +93,7 @@ public class JarnsenMrsSectorTool extends Tool
 
     private boolean selectionActive;
     private boolean targetDragMoved;
+    private int sectorFillColor = COLOR_FILL;
     private SelectionStage selectionStage = SelectionStage.NONE;
     private AlertDialog activeDialog;
 
@@ -532,7 +552,57 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void finishSetup() {
         redraw();
-        requestEndTool();
+        showColorSelectionDialog();
+    }
+
+    private void showColorSelectionDialog() {
+        CharSequence[] options = new CharSequence[SECTOR_COLOR_NAMES.length];
+        for (int i = 0; i < SECTOR_COLOR_NAMES.length; i++) {
+            SpannableString option = new SpannableString(
+                    "■  " + SECTOR_COLOR_NAMES[i]
+            );
+            option.setSpan(
+                    new ForegroundColorSpan(SECTOR_COLORS[i]),
+                    0,
+                    1,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            );
+            options[i] = option;
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Sektorfarbe")
+                .setItems(options, (ignored, which) -> {
+                    activeDialog = null;
+                    applySectorColor(SECTOR_COLORS[which]);
+                    requestEndTool();
+                })
+                .setNeutralButton("Standard", (ignored, which) -> {
+                    activeDialog = null;
+                    sectorFillColor = COLOR_FILL;
+                    redraw();
+                    requestEndTool();
+                })
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    sectorFillColor = COLOR_FILL;
+                    redraw();
+                    requestEndTool();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void applySectorColor(int color) {
+        sectorFillColor = Color.argb(
+                48,
+                Color.red(color),
+                Color.green(color),
+                Color.blue(color)
+        );
+        redraw();
     }
 
     private void showSamePointWarning() {
@@ -699,7 +769,7 @@ public class JarnsenMrsSectorTool extends Tool
                         | Shape.STYLE_STROKE_MASK
                         | Shape.STYLE_FILLED_MASK
         );
-        sector.setFillColor(COLOR_FILL);
+        sector.setFillColor(sectorFillColor);
         addLocalItem(sector);
     }
 
