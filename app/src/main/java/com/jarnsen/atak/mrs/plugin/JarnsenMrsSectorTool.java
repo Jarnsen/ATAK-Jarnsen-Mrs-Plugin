@@ -788,18 +788,30 @@ public class JarnsenMrsSectorTool extends Tool
                 )
                 .setItems(
                         new String[]{
+                                "Ziel neu setzen",
+                                "Start neu setzen",
+                                "Punkte direkt ziehen",
                                 "Bearbeiten",
+                                "Kopie erstellen",
                                 "Entfernen",
                                 "Schließen"
                         },
                         (ignored, which) -> {
                             activeDialog = null;
                             if (which == 0) {
-                                showEditDrawingDialog();
+                                pushUndoState();
+                                beginEditPoint(SelectionStage.TARGET);
                             } else if (which == 1) {
-                                resetEndpoints();
-                                drawingLabel = null;
-                                closeTool();
+                                pushUndoState();
+                                beginEditPoint(SelectionStage.ORIGIN);
+                            } else if (which == 2) {
+                                beginHandleEdit();
+                            } else if (which == 3) {
+                                showEditDrawingDialog();
+                            } else if (which == 4) {
+                                duplicateActiveDrawing();
+                            } else if (which == 5) {
+                                confirmDeleteActiveDrawing();
                             } else {
                                 closeTool();
                             }
@@ -826,28 +838,40 @@ public class JarnsenMrsSectorTool extends Tool
                                 "Ziel per MGRS eingeben",
                                 "Beschriftung ändern",
                                 "Farbe ändern",
+                                "Darstellung",
+                                "Punkte direkt ziehen",
                                 "Zurück",
                                 "Schließen"
                         },
                         (ignored, which) -> {
                             activeDialog = null;
                             if (which == 0) {
+                                pushUndoState();
                                 beginEditPoint(SelectionStage.ORIGIN);
                             } else if (which == 1) {
+                                pushUndoState();
                                 beginEditPoint(SelectionStage.TARGET);
                             } else if (which == 2) {
+                                pushUndoState();
                                 editingExistingPoint = true;
                                 showMgrsCoordinateDialog(
                                         SelectionStage.ORIGIN);
                             } else if (which == 3) {
+                                pushUndoState();
                                 editingExistingPoint = true;
                                 showMgrsCoordinateDialog(
                                         SelectionStage.TARGET);
                             } else if (which == 4) {
+                                pushUndoState();
                                 showLabelDialog(false);
                             } else if (which == 5) {
+                                pushUndoState();
                                 showColorSelectionDialog(false);
                             } else if (which == 6) {
+                                showDisplaySettingsDialog();
+                            } else if (which == 7) {
+                                beginHandleEdit();
+                            } else if (which == 8) {
                                 showExistingDrawingDialog();
                             } else {
                                 closeTool();
@@ -866,14 +890,36 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void startNewSetup() {
         editingExistingPoint = false;
+        creatingNewDrawing = true;
+        activeDrawingId = null;
         resetEndpoints();
         drawingLabel = null;
+        sectorFillColor = COLOR_FILL;
+        originIsSelfSelection = false;
+        targetIsSelfSelection = false;
         showPointSourceDialog(SelectionStage.ORIGIN);
     }
 
     private void beginEditPoint(SelectionStage stage) {
         editingExistingPoint = true;
         showPointSourceDialog(stage);
+    }
+
+    private void confirmDeleteActiveDrawing() {
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle(getDrawingLabel() + " entfernen?")
+                .setMessage("Die Zeichnung kann anschließend über Rückgängig wiederhergestellt werden.")
+                .setPositiveButton("Entfernen", (ignored, which) -> {
+                    activeDialog = null;
+                    deleteActiveDrawing();
+                })
+                .setNegativeButton("Abbrechen", (ignored, which) -> {
+                    activeDialog = null;
+                    showExistingDrawingDialog();
+                })
+                .create();
+        activeDialog = dialog;
+        dialog.show();
     }
 
     private void chooseSelfPosition(SelectionStage stage) {
