@@ -2461,7 +2461,6 @@ public class JarnsenMrsSectorTool extends Tool
         item.setMovable(false);
         overlayGroup.addItem(item);
         overlayItems.add(item);
-        mapView.getMapEventDispatcher().addMapItemEventListener(item, this);
     }
 
     private void clearOverlayItems() {
