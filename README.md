@@ -5,9 +5,10 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.2.1** ergänzt eine freie Auswahl von Start- und Zielpunkt, das
+Version **0.2.2** ergänzt eine freie Auswahl von Start- und Zielpunkt, das
 Bearbeiten und Entfernen per Antippen sowie eine automatisch mittig auf der
-Ziellinie positionierte Klammer.
+Ziellinie positionierte Klammer und eine Live-Vorschau beim Verschieben des
+Ziels auf der Karte.
 
 ### Bedienung
 
@@ -15,6 +16,8 @@ Ziellinie positionierte Klammer.
 2. Den Startpunkt wählen: **Eigene Position**, **Koordinaten eingeben** oder
    **Auf der Karte wählen**.
 3. Den Zielpunkt auf die gleiche Weise wählen.
+   Bei **Auf der Karte wählen** wird die Darstellung bereits beim Berühren
+   aufgebaut, beim Ziehen live nachgeführt und erst beim Loslassen festgelegt.
 4. Das Plugin zeichnet den Sektor vom gewählten Start zum gewählten Ziel.
 5. Wird die eigene Position oder ein beweglicher ATAK-Marker verwendet, wird
    die Darstellung bei Positionsänderungen automatisch neu berechnet.
