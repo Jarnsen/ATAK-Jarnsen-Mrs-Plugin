@@ -1929,6 +1929,10 @@ public class JarnsenMrsSectorTool extends Tool
                 InputType.TYPE_CLASS_TEXT
                         | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
         );
+
+        TextView recognized = new TextView(mapView.getContext());
+        recognized.setTextSize(13.0f);
+
         mgrs.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(
@@ -1951,6 +1955,7 @@ public class JarnsenMrsSectorTool extends Tool
                 String value = normalizeMgrs(editable.toString());
                 if (value.length() < 5) {
                     mgrs.setError(null);
+                    recognized.setText("");
                     return;
                 }
 
@@ -1959,10 +1964,22 @@ public class JarnsenMrsSectorTool extends Tool
                             value,
                             CoordinateFormat.MGRS
                     );
-                    mgrs.setError(isUsable(point)
-                            ? null
-                            : "MGRS ungültig");
+                    if (isUsable(point)) {
+                        mgrs.setError(null);
+                        recognized.setText(
+                                "Erkannt: "
+                                        + CoordinateFormatUtilities
+                                        .formatToString(
+                                                point,
+                                                CoordinateFormat.MGRS
+                                        )
+                        );
+                    } else {
+                        recognized.setText("");
+                        mgrs.setError("MGRS ungültig");
+                    }
                 } catch (Exception ignored) {
+                    recognized.setText("");
                     mgrs.setError("MGRS noch unvollständig/ungültig");
                 }
             }
@@ -1985,8 +2002,13 @@ public class JarnsenMrsSectorTool extends Tool
                 20.0f * mapView.getResources().getDisplayMetrics().density
         );
         LinearLayout holder = new LinearLayout(mapView.getContext());
+        holder.setOrientation(LinearLayout.VERTICAL);
         holder.setPadding(padding, 0, padding, 0);
         holder.addView(mgrs, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+        holder.addView(recognized, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
         ));
@@ -2124,14 +2146,7 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private static String normalizeMgrs(String value) {
-        if (value == null) {
-            return "";
-        }
-
-        return value.toUpperCase(Locale.US)
-                .replaceAll("[^A-Z0-9 ]", " ")
-                .trim()
-                .replaceAll("\\s+", " ");
+        return MrsCoreLogic.normalizeMgrsInput(value);
     }
 
     private void showCoordinateDialog(final SelectionStage stage) {
