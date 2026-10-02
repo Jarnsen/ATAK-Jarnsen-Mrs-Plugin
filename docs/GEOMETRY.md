@@ -14,6 +14,7 @@
 | 500-m-Zwischenringe | dünner / gestrichelt |
 | Sektor-Maximum | 8000 m |
 | zentrale Klammer | Mitte zwischen Start und Ziel |
+| Flächenfarbe | Standard oder Weiß, Rot, Gelb, Blau, Grün, Schwarz |
 
 ## Bezugssystem
 
@@ -27,6 +28,11 @@ Bei der Zielauswahl auf der Karte wird die komplette Darstellung ab dem
 Berühren live aufgebaut. Während des Ziehens werden Ziellinie, Klammer,
 Grundrichtung, Entfernung und Zielkoordinate fortlaufend neu berechnet; erst
 beim Loslassen wird die Zielposition übernommen.
+
+Nach der Zielauswahl erscheint eine Farbschnellauswahl. Eine ausgewählte Farbe
+wird mit transparenter Deckkraft als Sektorschattierung verwendet. Wird die
+Auswahl geschlossen oder **Standard** gewählt, bleibt die bisherige
+Standarddarstellung erhalten.
 
 Die sichtbare Richtungsangabe wird auf Gitternord umgerechnet:
 
