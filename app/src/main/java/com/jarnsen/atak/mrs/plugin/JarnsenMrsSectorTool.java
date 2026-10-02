@@ -1194,38 +1194,29 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void showDiagnosticsDialog() {
-        String atakVersion = "unbekannt";
-        try {
-            atakVersion = mapView.getContext()
-                    .getPackageManager()
-                    .getPackageInfo("com.atakmap.app", 0)
-                    .versionName;
-        } catch (Exception ignored) {
-        }
-
-        String signatureStatus = getSignatureSummary();
-
-        String message =
-                "Plugin: " + BuildConfig.VERSION_NAME
-                        + "\nATAK installiert: " + atakVersion
-                        + "\nATAK Ziel-API: 5.6.0 CIV"
-                        + "\nAPK-Signatur: " + signatureStatus
-                        + "\nZeichnungen: " + drawings.size()
-                        + "\nUndo/Redo: " + history.undoSize()
-                        + "/" + history.redoSize()
-                        + "\nMax. Reichweite: 8 km (fest)"
-                        + "\nLetzte MGRS: "
-                        + (drawingStore.getLastMgrs().isEmpty()
-                        ? "—"
-                        : drawingStore.getLastMgrs())
-                        + "\nLetzter Fehler: " + lastDiagnosticError;
+        String message = buildDiagnosticsText();
 
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle("Jarnsen Mrs Diagnose")
                 .setMessage(message)
-                .setPositiveButton("OK", (ignored, which) -> {
+                .setPositiveButton("Zurück", (ignored, which) -> {
                     activeDialog = null;
                     showWorkspaceMenu();
+                })
+                .setNeutralButton("Kopieren", (ignored, which) -> {
+                    activeDialog = null;
+                    copyTextToClipboard("Jarnsen Mrs Diagnose", message);
+                    Toast.makeText(
+                            mapView.getContext(),
+                            "Diagnose in Zwischenablage kopiert.",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                    showDiagnosticsDialog();
+                })
+                .setNegativeButton("Exportieren", (ignored, which) -> {
+                    activeDialog = null;
+                    exportDiagnosticsToFile(message);
+                    showDiagnosticsDialog();
                 })
                 .setOnCancelListener(ignored -> {
                     activeDialog = null;
@@ -1235,6 +1226,84 @@ public class JarnsenMrsSectorTool extends Tool
 
         activeDialog = dialog;
         dialog.show();
+    }
+
+    private String buildDiagnosticsText() {
+        String atakVersion = "unbekannt";
+        try {
+            atakVersion = mapView.getContext()
+                    .getPackageManager()
+                    .getPackageInfo("com.atakmap.app", 0)
+                    .versionName;
+        } catch (Exception ignored) {
+        }
+
+        int visibleCount = 0;
+        for (MrsDrawing drawing : drawings.values()) {
+            if (drawing.visible) {
+                visibleCount++;
+            }
+        }
+
+        String signatureStatus = getSignatureSummary();
+        return "Plugin: " + BuildConfig.VERSION_NAME
+                + "\nATAK installiert: " + atakVersion
+                + "\nATAK Ziel-API: 5.6.0 CIV"
+                + "\nAPK-Signatur: " + signatureStatus
+                + "\nZeichnungen: " + drawings.size()
+                + " (" + visibleCount + " sichtbar)"
+                + "\nUndo/Redo: " + history.undoSize()
+                + "/" + history.redoSize()
+                + "\nGeometrie-Cache Treffer/Neu: "
+                + geometryCacheHits + "/" + geometryCacheMisses
+                + "\nMax. Reichweite: 8 km (fest)"
+                + "\nLetzte MGRS: "
+                + (drawingStore.getLastMgrs().isEmpty()
+                ? "—"
+                : drawingStore.getLastMgrs())
+                + "\nBackup: "
+                + (drawingStore.getBackupSnapshot().isEmpty()
+                ? "nicht vorhanden"
+                : "vorhanden")
+                + "\nLetzter Fehler: " + lastDiagnosticError;
+    }
+
+    private void exportDiagnosticsToFile(String text) {
+        File dir = getTransferDirectory();
+        if (!dir.exists()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Diagnoseexport fehlgeschlagen.",
+                    Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
+        String stamp = new SimpleDateFormat(
+                "yyyyMMdd-HHmmss",
+                Locale.US
+        ).format(new Date());
+        File file = new File(
+                dir,
+                "diagnose-" + stamp + ".txt"
+        );
+
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            output.write(text.getBytes(StandardCharsets.UTF_8));
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Diagnose exportiert: " + file.getAbsolutePath(),
+                    Toast.LENGTH_LONG
+            ).show();
+        } catch (Exception e) {
+            lastDiagnosticError =
+                    "Diagnoseexport: " + e.getClass().getSimpleName();
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Diagnoseexport fehlgeschlagen.",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
     }
 
     private String getSignatureSummary() {
@@ -1275,6 +1344,100 @@ public class JarnsenMrsSectorTool extends Tool
                     "Signaturprüfung: " + e.getClass().getSimpleName();
             return "nicht ermittelt";
         }
+    }
+
+    private void maybeCheckForUpdate(boolean userRequested) {
+        SharedPreferences prefs = PreferenceManager
+                .getDefaultSharedPreferences(mapView.getContext());
+        long now = System.currentTimeMillis();
+        long last = prefs.getLong(PREF_UPDATE_CHECK_AT, 0L);
+
+        if (!userRequested
+                && now - last < UPDATE_CHECK_INTERVAL_MS) {
+            return;
+        }
+
+        prefs.edit().putLong(PREF_UPDATE_CHECK_AT, now).apply();
+
+        if (userRequested) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Prüfe GitHub-Release…",
+                    Toast.LENGTH_SHORT
+            ).show();
+        }
+
+        String current = MrsUpdateChecker.stripVersionPrefix(
+                BuildConfig.VERSION_NAME
+        );
+        MrsUpdateChecker.checkAsync(current, result ->
+                mapView.post(() ->
+                        handleUpdateResult(result, userRequested)
+                )
+        );
+    }
+
+    private void handleUpdateResult(
+            MrsUpdateChecker.Result result,
+            boolean userRequested) {
+        if (result.updateAvailable) {
+            if (!userRequested) {
+                Toast.makeText(
+                        mapView.getContext(),
+                        "Neue Jarnsen-Mrs-Version "
+                                + result.latestVersion
+                                + " verfügbar.",
+                        Toast.LENGTH_LONG
+                ).show();
+                return;
+            }
+
+            AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                    .setTitle("Update verfügbar")
+                    .setMessage(
+                            "Version " + result.latestVersion
+                                    + " ist auf GitHub verfügbar."
+                    )
+                    .setPositiveButton("Link kopieren", (ignored, which) -> {
+                        activeDialog = null;
+                        copyTextToClipboard(
+                                "Jarnsen Mrs Release",
+                                result.releaseUrl
+                        );
+                        Toast.makeText(
+                                mapView.getContext(),
+                                "Release-Link kopiert.",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                        showWorkspaceMenu();
+                    })
+                    .setNegativeButton("Zurück", (ignored, which) -> {
+                        activeDialog = null;
+                        showWorkspaceMenu();
+                    })
+                    .create();
+            activeDialog = dialog;
+            dialog.show();
+            return;
+        }
+
+        if (!userRequested) {
+            return;
+        }
+
+        String text = result.error == null
+                ? "Die installierte Version ist aktuell."
+                : "Update-Prüfung nicht verfügbar: " + result.error;
+        if (result.error != null) {
+            lastDiagnosticError = "Update-Prüfung: " + result.error;
+        }
+
+        Toast.makeText(
+                mapView.getContext(),
+                text,
+                Toast.LENGTH_LONG
+        ).show();
+        showWorkspaceMenu();
     }
 
     private void showPointSourceDialog(final SelectionStage stage) {
