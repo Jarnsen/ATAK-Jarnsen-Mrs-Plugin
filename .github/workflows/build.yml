@@ -153,25 +153,58 @@ jobs:
         run: |
           find app/build/outputs -type f -name '*.apk' -print 2>/dev/null || true
 
-      - name: Create TAK.gov source archive
+      - name: Create and validate TAK.gov source archive
         if: success()
         shell: bash
         run: |
           set -euxo pipefail
+
           VERSION="$(sed -n 's/.*ext.PLUGIN_VERSION = "\([^"]*\)".*/\1/p' app/build.gradle | head -n 1)"
           test -n "$VERSION"
+
           SOURCE_ZIP="Jarnsen-Mrs-Plugin-${VERSION}-TAKgov-Source.zip"
+          SOURCE_SHA_FILE="${SOURCE_ZIP}.sha256"
+          SOURCE_LIST="${RUNNER_TEMP}/takgov-source-files.txt"
+
+          # Build the upload strictly from tracked Git content. This keeps local
+          # SDK files, build outputs, signing material and .git data out.
           git archive --format=zip --output="$SOURCE_ZIP" HEAD
           unzip -t "$SOURCE_ZIP"
-          sha256sum "$SOURCE_ZIP"
+          unzip -Z1 "$SOURCE_ZIP" > "$SOURCE_LIST"
+
+          # TAK.gov needs the actual source project, not an already-built APK.
+          for required in \
+            README.md \
+            build.gradle \
+            settings.gradle \
+            app/build.gradle \
+            app/src/main/AndroidManifest.xml
+          do
+            grep -Fxq "$required" "$SOURCE_LIST"
+          done
+
+          # Fail closed if signing material, local config or generated DevKit
+          # files ever become tracked by mistake.
+          if grep -Eqi '(^|/)(local\.properties|keystore\.properties|\.env([^/]*)?|id_rsa|id_ed25519)$|\.(jks|keystore|pem|p12|pfx)$|(^|/)sdk/android_keystore$|(^|/)atak-gradle-takdev\.jar$|(^|/)(build|\.gradle|\.git)/' "$SOURCE_LIST"; then
+            echo "::error::TAK.gov source archive contains a forbidden generated, local or signing file"
+            grep -Ei '(^|/)(local\.properties|keystore\.properties|\.env([^/]*)?|id_rsa|id_ed25519)$|\.(jks|keystore|pem|p12|pfx)$|(^|/)sdk/android_keystore$|(^|/)atak-gradle-takdev\.jar$|(^|/)(build|\.gradle|\.git)/' "$SOURCE_LIST" || true
+            exit 1
+          fi
+
+          sha256sum "$SOURCE_ZIP" | tee "$SOURCE_SHA_FILE"
+
+          echo "PLUGIN_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "SOURCE_ZIP=$SOURCE_ZIP" >> "$GITHUB_ENV"
+          echo "SOURCE_SHA_FILE=$SOURCE_SHA_FILE" >> "$GITHUB_ENV"
 
       - name: Upload TAK.gov source archive
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Jarnsen-Mrs-Plugin-TAKgov-SOURCE
-          path: ${{ env.SOURCE_ZIP }}
+          name: Jarnsen-Mrs-Plugin-${{ env.PLUGIN_VERSION }}-TAKgov-Source
+          path: |
+            ${{ env.SOURCE_ZIP }}
+            ${{ env.SOURCE_SHA_FILE }}
           if-no-files-found: error
 
       - name: Upload plugin APK
