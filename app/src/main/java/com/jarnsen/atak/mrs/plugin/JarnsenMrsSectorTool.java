@@ -2136,7 +2136,10 @@ public class JarnsenMrsSectorTool extends Tool
             double range,
             boolean fullKm) {
 
-        double halfWidth = fullKm ? 55.0 : 38.0;
+        double resolution = getVisualResolution();
+        double halfWidth = fullKm
+                ? clamp(resolution * 10.0, 28.0, 150.0)
+                : clamp(resolution * 7.0, 20.0, 110.0);
 
         List<GeoPoint> pts = new ArrayList<>();
         pts.add(pointFromAxis(own, bearing, range, halfWidth));
