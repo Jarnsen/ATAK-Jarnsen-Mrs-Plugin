@@ -995,6 +995,20 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
+        if ("origin".equals(role)) {
+            if (!isDifferentFromTarget(moved.get())) {
+                if (MapEvent.ITEM_DRAG_DROPPED.equals(event.getType())) {
+                    showSamePointWarning();
+                }
+                return;
+            }
+        } else if (!isDifferentFromOrigin(moved.get())) {
+            if (MapEvent.ITEM_DRAG_DROPPED.equals(event.getType())) {
+                showSamePointWarning();
+            }
+            return;
+        }
+
         PointMapItem pointItem = (PointMapItem) item;
         pointItem.setPoint(moved);
 
@@ -1002,9 +1016,6 @@ public class JarnsenMrsSectorTool extends Tool
             originPoint = moved;
             originIsSelfSelection = false;
         } else {
-            if (!isDifferentFromOrigin(moved.get())) {
-                return;
-            }
             targetPoint = moved;
             targetIsSelfSelection = false;
         }
@@ -1824,6 +1835,14 @@ public class JarnsenMrsSectorTool extends Tool
             return true;
         }
         double distance = originPoint.get().distanceTo(candidate);
+        return Double.isNaN(distance) || distance >= 1.0;
+    }
+
+    private boolean isDifferentFromTarget(GeoPoint candidate) {
+        if (targetPoint == null || !isUsable(targetPoint.get())) {
+            return true;
+        }
+        double distance = targetPoint.get().distanceTo(candidate);
         return Double.isNaN(distance) || distance >= 1.0;
     }
 
