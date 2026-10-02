@@ -476,19 +476,31 @@ public class JarnsenMrsSectorTool extends Tool
         drawingLabel = null;
         creatingNewDrawing = false;
 
+        int visibleCount = 0;
+        for (MrsDrawing drawing : drawings.values()) {
+            if (drawing.visible) {
+                visibleCount++;
+            }
+        }
+
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle("Jarnsen Mrs Plugin")
                 .setMessage(
                         drawings.size() + " gespeicherte Zeichnung"
                                 + (drawings.size() == 1 ? "" : "en")
+                                + " · " + visibleCount + " sichtbar"
                 )
                 .setItems(
                         new String[]{
                                 "Neue Zeichnung",
                                 "Zeichnungen verwalten",
+                                "Alle anzeigen",
+                                "Alle ausblenden",
+                                "Import / Export",
                                 "Rückgängig",
                                 "Wiederholen",
                                 "Diagnose",
+                                "Nach Update suchen",
                                 "Schließen"
                         },
                         (ignored, which) -> {
@@ -498,11 +510,19 @@ public class JarnsenMrsSectorTool extends Tool
                             } else if (which == 1) {
                                 showDrawingListDialog();
                             } else if (which == 2) {
-                                undoWorkspace();
+                                setAllDrawingsVisible(true);
                             } else if (which == 3) {
-                                redoWorkspace();
+                                setAllDrawingsVisible(false);
                             } else if (which == 4) {
+                                showTransferDialog();
+                            } else if (which == 5) {
+                                undoWorkspace();
+                            } else if (which == 6) {
+                                redoWorkspace();
+                            } else if (which == 7) {
                                 showDiagnosticsDialog();
+                            } else if (which == 8) {
+                                maybeCheckForUpdate(true);
                             } else {
                                 closeTool();
                             }
@@ -529,27 +549,136 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
-        final List<MrsDrawing> list = new ArrayList<>(drawings.values());
-        CharSequence[] labels = new CharSequence[list.size()];
-        for (int i = 0; i < list.size(); i++) {
-            MrsDrawing d = list.get(i);
-            labels[i] = (d.label == null || d.label.trim().isEmpty()
+        int padding = Math.round(
+                12.0f * mapView.getResources().getDisplayMetrics().density
+        );
+
+        LinearLayout content = new LinearLayout(mapView.getContext());
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(padding, padding, padding, padding);
+
+        for (MrsDrawing drawing : new ArrayList<>(drawings.values())) {
+            LinearLayout card = new LinearLayout(mapView.getContext());
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(0, padding / 2, 0, padding);
+
+            LinearLayout header = new LinearLayout(mapView.getContext());
+            header.setOrientation(LinearLayout.HORIZONTAL);
+
+            CheckBox visible = new CheckBox(mapView.getContext());
+            visible.setChecked(drawing.visible);
+            visible.setText("Sichtbar");
+            header.addView(visible);
+
+            TextView title = new TextView(mapView.getContext());
+            String label = drawing.label == null
+                    || drawing.label.trim().isEmpty()
                     ? "Mrs"
-                    : d.label.trim())
-                    + "  ·  "
-                    + CoordinateFormatUtilities.formatToString(
-                            d.targetPoint().get(),
-                            CoordinateFormat.MGRS
-                    );
+                    : drawing.label.trim();
+            title.setText(
+                    "■  " + label + "\n"
+                            + CoordinateFormatUtilities.formatToString(
+                                    drawing.targetPoint().get(),
+                                    CoordinateFormat.MGRS
+                            )
+            );
+            title.setTextSize(16.0f);
+            title.setPadding(padding / 2, 0, 0, 0);
+            title.setCompoundDrawablePadding(padding / 2);
+            header.addView(
+                    title,
+                    new LinearLayout.LayoutParams(
+                            0,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1.0f
+                    )
+            );
+            card.addView(header);
+
+            LinearLayout actions = new LinearLayout(mapView.getContext());
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+
+            Button open = new Button(mapView.getContext());
+            open.setText("Öffnen");
+            actions.addView(
+                    open,
+                    new LinearLayout.LayoutParams(
+                            0,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1.0f
+                    )
+            );
+
+            Button duplicate = new Button(mapView.getContext());
+            duplicate.setText("Kopie");
+            actions.addView(
+                    duplicate,
+                    new LinearLayout.LayoutParams(
+                            0,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1.0f
+                    )
+            );
+
+            Button delete = new Button(mapView.getContext());
+            delete.setText("Löschen");
+            actions.addView(
+                    delete,
+                    new LinearLayout.LayoutParams(
+                            0,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1.0f
+                    )
+            );
+            card.addView(actions);
+            content.addView(card);
+
+            visible.setOnCheckedChangeListener((button, checked) -> {
+                if (drawing.visible == checked) {
+                    return;
+                }
+                pushUndoState();
+                drawing.visible = checked;
+                drawing.updatedAt = System.currentTimeMillis();
+                drawingStore.save(drawings.values());
+                redraw();
+            });
+
+            open.setOnClickListener(button -> {
+                if (activeDialog != null) {
+                    activeDialog.dismiss();
+                    activeDialog = null;
+                }
+                highlightDrawing(drawing.id);
+                loadDrawingForEdit(drawing.id);
+                showExistingDrawingDialog();
+            });
+
+            duplicate.setOnClickListener(button -> {
+                if (activeDialog != null) {
+                    activeDialog.dismiss();
+                    activeDialog = null;
+                }
+                loadDrawingForEdit(drawing.id);
+                duplicateActiveDrawing();
+            });
+
+            delete.setOnClickListener(button -> {
+                if (activeDialog != null) {
+                    activeDialog.dismiss();
+                    activeDialog = null;
+                }
+                loadDrawingForEdit(drawing.id);
+                confirmDeleteActiveDrawing();
+            });
         }
 
+        ScrollView scroll = new ScrollView(mapView.getContext());
+        scroll.addView(content);
+
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
-                .setTitle("Zeichnungen")
-                .setItems(labels, (ignored, which) -> {
-                    activeDialog = null;
-                    loadDrawingForEdit(list.get(which).id);
-                    showExistingDrawingDialog();
-                })
+                .setTitle("Zeichnungen verwalten")
+                .setView(scroll)
                 .setNegativeButton("Zurück", (ignored, which) -> {
                     activeDialog = null;
                     showWorkspaceMenu();
@@ -562,6 +691,316 @@ public class JarnsenMrsSectorTool extends Tool
 
         activeDialog = dialog;
         dialog.show();
+    }
+
+    private void setAllDrawingsVisible(boolean visible) {
+        boolean changed = false;
+        for (MrsDrawing drawing : drawings.values()) {
+            if (drawing.visible != visible) {
+                changed = true;
+                break;
+            }
+        }
+
+        if (changed) {
+            pushUndoState();
+            for (MrsDrawing drawing : drawings.values()) {
+                drawing.visible = visible;
+                drawing.updatedAt = System.currentTimeMillis();
+            }
+            drawingStore.save(drawings.values());
+            redraw();
+        }
+
+        showWorkspaceMenu();
+    }
+
+    private void showTransferDialog() {
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Import / Export")
+                .setItems(
+                        new String[]{
+                                "JSON exportieren",
+                                "JSON in Zwischenablage kopieren",
+                                "JSON-Datei importieren",
+                                "Backup wiederherstellen",
+                                "Zurück"
+                        },
+                        (ignored, which) -> {
+                            activeDialog = null;
+                            if (which == 0) {
+                                exportDrawingsToFile();
+                            } else if (which == 1) {
+                                copyTextToClipboard(
+                                        "Jarnsen Mrs JSON",
+                                        drawingStore.exportPackage(
+                                                drawings.values())
+                                );
+                                Toast.makeText(
+                                        mapView.getContext(),
+                                        "JSON in Zwischenablage kopiert.",
+                                        Toast.LENGTH_SHORT
+                                ).show();
+                                showTransferDialog();
+                            } else if (which == 2) {
+                                showImportFileDialog();
+                            } else if (which == 3) {
+                                restoreDrawingBackup();
+                            } else {
+                                showWorkspaceMenu();
+                            }
+                        }
+                )
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .create();
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private File getTransferDirectory() {
+        File dir = FileSystemUtils.getItem(
+                FileSystemUtils.TOOL_DATA_DIRECTORY
+                        + File.separator
+                        + "jarnsen-mrs"
+        );
+        if (!dir.exists() && !dir.mkdirs()) {
+            lastDiagnosticError =
+                    "Exportordner konnte nicht erstellt werden: "
+                            + dir.getAbsolutePath();
+        }
+        return dir;
+    }
+
+    private void exportDrawingsToFile() {
+        File dir = getTransferDirectory();
+        if (!dir.exists()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Exportordner konnte nicht erstellt werden.",
+                    Toast.LENGTH_LONG
+            ).show();
+            showTransferDialog();
+            return;
+        }
+
+        String stamp = new SimpleDateFormat(
+                "yyyyMMdd-HHmmss",
+                Locale.US
+        ).format(new Date());
+        File file = new File(
+                dir,
+                "jarnsen-mrs-" + stamp + ".json"
+        );
+
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            output.write(
+                    drawingStore.exportPackage(drawings.values())
+                            .getBytes(StandardCharsets.UTF_8)
+            );
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Exportiert: " + file.getAbsolutePath(),
+                    Toast.LENGTH_LONG
+            ).show();
+        } catch (Exception e) {
+            lastDiagnosticError =
+                    "JSON-Export: " + e.getClass().getSimpleName();
+            Toast.makeText(
+                    mapView.getContext(),
+                    "JSON-Export fehlgeschlagen.",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+
+        showTransferDialog();
+    }
+
+    private void showImportFileDialog() {
+        File dir = getTransferDirectory();
+        File[] files = dir.listFiles(
+                file -> file.isFile()
+                        && file.getName().toLowerCase(Locale.US)
+                        .endsWith(".json")
+        );
+
+        if (files == null || files.length == 0) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Keine JSON-Dateien in " + dir.getAbsolutePath(),
+                    Toast.LENGTH_LONG
+            ).show();
+            showTransferDialog();
+            return;
+        }
+
+        java.util.Arrays.sort(
+                files,
+                (left, right) -> Long.compare(
+                        right.lastModified(),
+                        left.lastModified()
+                )
+        );
+
+        CharSequence[] names = new CharSequence[files.length];
+        for (int i = 0; i < files.length; i++) {
+            names[i] = files[i].getName();
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("JSON-Datei importieren")
+                .setItems(names, (ignored, which) -> {
+                    activeDialog = null;
+                    importDrawingFile(files[which]);
+                })
+                .setNegativeButton("Zurück", (ignored, which) -> {
+                    activeDialog = null;
+                    showTransferDialog();
+                })
+                .create();
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void importDrawingFile(File file) {
+        try {
+            byte[] bytes;
+            try (FileInputStream input = new FileInputStream(file)) {
+                bytes = new byte[(int) file.length()];
+                int offset = 0;
+                while (offset < bytes.length) {
+                    int read = input.read(bytes, offset, bytes.length - offset);
+                    if (read < 0) {
+                        break;
+                    }
+                    offset += read;
+                }
+                if (offset != bytes.length) {
+                    throw new IllegalStateException("Datei unvollständig");
+                }
+            }
+
+            List<MrsDrawing> imported = drawingStore.importPackage(
+                    new String(bytes, StandardCharsets.UTF_8)
+            );
+            if (imported == null) {
+                throw new IllegalArgumentException("Ungültiges JSON");
+            }
+            showImportModeDialog(imported, file.getName());
+        } catch (Exception e) {
+            lastDiagnosticError =
+                    "JSON-Import: " + e.getClass().getSimpleName();
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Import fehlgeschlagen: " + file.getName(),
+                    Toast.LENGTH_LONG
+            ).show();
+            showTransferDialog();
+        }
+    }
+
+    private void showImportModeDialog(
+            List<MrsDrawing> imported,
+            String sourceName) {
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Import: " + sourceName)
+                .setMessage(
+                        imported.size() + " Zeichnung"
+                                + (imported.size() == 1 ? "" : "en")
+                                + " gefunden."
+                )
+                .setItems(
+                        new String[]{
+                                "Zusammenführen",
+                                "Vorhandene ersetzen",
+                                "Abbrechen"
+                        },
+                        (ignored, which) -> {
+                            activeDialog = null;
+                            if (which == 0) {
+                                pushUndoState();
+                                for (MrsDrawing drawing : imported) {
+                                    MrsDrawing value = drawing;
+                                    if (drawings.containsKey(value.id)) {
+                                        value = value.copyAsNew();
+                                        value.label =
+                                                (value.label == null
+                                                        ? "Mrs"
+                                                        : value.label)
+                                                        + " (Import)";
+                                    }
+                                    drawings.put(value.id, value);
+                                }
+                                geometryCache.clear();
+                                drawingStore.save(drawings.values());
+                                redraw();
+                                showDrawingListDialog();
+                            } else if (which == 1) {
+                                pushUndoState();
+                                drawings.clear();
+                                for (MrsDrawing drawing : imported) {
+                                    drawings.put(drawing.id, drawing);
+                                }
+                                geometryCache.clear();
+                                drawingStore.save(drawings.values());
+                                redraw();
+                                showDrawingListDialog();
+                            } else {
+                                showTransferDialog();
+                            }
+                        }
+                )
+                .create();
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void restoreDrawingBackup() {
+        String backup = drawingStore.getBackupSnapshot();
+        if (backup.isEmpty()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Kein gültiges Backup vorhanden.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showTransferDialog();
+            return;
+        }
+
+        pushUndoState();
+        restoreWorkspaceSnapshot(backup);
+        Toast.makeText(
+                mapView.getContext(),
+                "Letztes gültiges Backup wiederhergestellt.",
+                Toast.LENGTH_SHORT
+        ).show();
+        showWorkspaceMenu();
+    }
+
+    private void copyTextToClipboard(String label, String text) {
+        ClipboardManager clipboard =
+                (ClipboardManager) mapView.getContext()
+                        .getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(
+                    ClipData.newPlainText(label, text)
+            );
+        }
+    }
+
+    private void highlightDrawing(String drawingId) {
+        highlightedDrawingId = drawingId;
+        redraw();
+        mapView.postDelayed(() -> {
+            if (drawingId != null
+                    && drawingId.equals(highlightedDrawingId)
+                    && !drawingId.equals(activeDrawingId)) {
+                highlightedDrawingId = null;
+                redraw();
+            }
+        }, 1600L);
     }
 
     private void loadDrawingForEdit(String drawingId) {
