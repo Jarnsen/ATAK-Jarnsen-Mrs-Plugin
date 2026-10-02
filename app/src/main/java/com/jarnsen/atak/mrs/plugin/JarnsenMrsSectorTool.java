@@ -151,14 +151,18 @@ public class JarnsenMrsSectorTool extends Tool
 
         MapItem item = event.getItem();
         if (item == null
-                || !item.getMetaBoolean(META_MRS_OVERLAY, false)
-                || originPoint == null
-                || targetPoint == null) {
+                || !item.getMetaBoolean(META_MRS_OVERLAY, false)) {
+            return;
+        }
+
+        String drawingId = item.getMetaString(META_MRS_DRAWING_ID, null);
+        if (drawingId == null || !drawings.containsKey(drawingId)) {
             return;
         }
 
         mapView.post(() -> {
             if (!selectionActive && activeDialog == null) {
+                loadDrawingForEdit(drawingId);
                 ToolManagerBroadcastReceiver.getInstance().startTool(
                         TOOL_IDENTIFIER,
                         new Bundle()
@@ -200,8 +204,12 @@ public class JarnsenMrsSectorTool extends Tool
     @Override
     public boolean onToolBegin(Bundle extras) {
         attachSelfListener();
-        if (originPoint != null && targetPoint != null) {
+        if (activeDrawingId != null
+                && originPoint != null
+                && targetPoint != null) {
             showExistingDrawingDialog();
+        } else if (!drawings.isEmpty()) {
+            showWorkspaceMenu();
         } else {
             startNewSetup();
         }
@@ -294,11 +302,29 @@ public class JarnsenMrsSectorTool extends Tool
 
     @Override
     public void onMapItemMapEvent(MapItem item, MapEvent event) {
+        if (item == null || event == null) {
+            return;
+        }
+
+        if (handleDragMode
+                && item.getMetaString(META_MRS_HANDLE, null) != null
+                && (MapEvent.ITEM_DRAG_STARTED.equals(event.getType())
+                || MapEvent.ITEM_DRAG_CONTINUED.equals(event.getType())
+                || MapEvent.ITEM_DRAG_DROPPED.equals(event.getType()))) {
+            handleEndpointDrag(item, event);
+            return;
+        }
+
         if (!MapEvent.ITEM_CLICK.equals(event.getType())
                 || selectionActive
                 || activeDialog != null
-                || !overlayItems.contains(item)) {
+                || !item.getMetaBoolean(META_MRS_OVERLAY, false)) {
             return;
+        }
+
+        String drawingId = item.getMetaString(META_MRS_DRAWING_ID, null);
+        if (drawingId != null && drawings.containsKey(drawingId)) {
+            loadDrawingForEdit(drawingId);
         }
 
         ToolManagerBroadcastReceiver.getInstance().startTool(
