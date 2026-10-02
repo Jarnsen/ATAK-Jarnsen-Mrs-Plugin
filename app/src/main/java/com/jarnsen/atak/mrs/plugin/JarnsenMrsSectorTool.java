@@ -150,6 +150,7 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void handleOverlayTap(MapEvent event) {
         if (selectionActive
+                || handleDragMode
                 || activeDialog != null
                 || event == null
                 || !MapEvent.ITEM_CLICK.equals(event.getType())) {
