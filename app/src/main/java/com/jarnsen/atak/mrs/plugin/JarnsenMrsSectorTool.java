@@ -219,6 +219,7 @@ public class JarnsenMrsSectorTool extends Tool
     @Override
     public void onToolEnd() {
         stopMapSelection();
+        removeEditHandles();
 
         if (activeDialog != null) {
             activeDialog.dismiss();
@@ -382,6 +383,7 @@ public class JarnsenMrsSectorTool extends Tool
             selfMarker = null;
         }
 
+        removeEditHandles();
         clearOverlayItems();
         mapView.removeOnMapMovedListener(this);
         mapView.getMapEventDispatcher().removeMapEventListenerFromBase(
@@ -889,6 +891,133 @@ public class JarnsenMrsSectorTool extends Tool
 
         activeDialog = dialog;
         dialog.show();
+    }
+
+    private void beginHandleEdit() {
+        if (activeDrawingId == null
+                || originPoint == null
+                || targetPoint == null) {
+            showExistingDrawingDialog();
+            return;
+        }
+
+        pushUndoState();
+        removeEditHandles();
+        handleDragMode = true;
+        editingExistingPoint = true;
+
+        originHandle = createEditHandle(
+                "Start",
+                originPoint,
+                "origin",
+                COLOR_PRIMARY
+        );
+        targetHandle = createEditHandle(
+                "Ziel",
+                targetPoint,
+                "target",
+                COLOR_TARGET
+        );
+
+        prompt.displayPrompt(
+                "Start oder Ziel anfassen, ziehen und loslassen"
+        );
+    }
+
+    private Marker createEditHandle(
+            String title,
+            GeoPointMetaData point,
+            String role,
+            int color) {
+
+        Marker marker = new Marker(
+                point,
+                UUID.randomUUID().toString()
+        );
+        marker.setTitle(title);
+        marker.setType("shape_marker");
+        marker.setShowLabel(true);
+        marker.setColor(color);
+        marker.setClickable(true);
+        marker.setEditable(true);
+        marker.setMovable(true);
+        marker.setMetaBoolean("drag", true);
+        marker.setMetaBoolean("nevercot", true);
+        marker.setMetaBoolean("addToObjList", false);
+        marker.setMetaString(META_MRS_HANDLE, role);
+        marker.setMetaString(META_MRS_DRAWING_ID, activeDrawingId);
+        overlayGroup.addItem(marker);
+        mapView.getMapEventDispatcher().addMapItemEventListener(
+                marker,
+                this
+        );
+        return marker;
+    }
+
+    private void handleEndpointDrag(MapItem item, MapEvent event) {
+        if (!(item instanceof PointMapItem)
+                || event == null
+                || event.getPointF() == null) {
+            return;
+        }
+
+        String role = item.getMetaString(META_MRS_HANDLE, null);
+        if (role == null) {
+            return;
+        }
+
+        GeoPointMetaData moved = mapView.inverseWithElevation(
+                event.getPointF().x,
+                event.getPointF().y
+        );
+        if (moved == null || !isUsable(moved.get())) {
+            return;
+        }
+
+        PointMapItem pointItem = (PointMapItem) item;
+        pointItem.setPoint(moved);
+
+        if ("origin".equals(role)) {
+            originPoint = moved;
+            originIsSelfSelection = false;
+        } else {
+            if (!isDifferentFromOrigin(moved.get())) {
+                return;
+            }
+            targetPoint = moved;
+            targetIsSelfSelection = false;
+        }
+
+        redraw();
+
+        if (MapEvent.ITEM_DRAG_DROPPED.equals(event.getType())) {
+            commitEditorToWorkspace();
+            removeEditHandles();
+            editingExistingPoint = false;
+            showExistingDrawingDialog();
+        }
+    }
+
+    private void removeEditHandles() {
+        handleDragMode = false;
+        prompt.closePrompt();
+        MapEventDispatcher dispatcher = mapView.getMapEventDispatcher();
+
+        if (originHandle != null) {
+            dispatcher.removeMapItemEventListener(originHandle, this);
+            if (originHandle.getGroup() != null) {
+                originHandle.removeFromGroup();
+            }
+            originHandle = null;
+        }
+
+        if (targetHandle != null) {
+            dispatcher.removeMapItemEventListener(targetHandle, this);
+            if (targetHandle.getGroup() != null) {
+                targetHandle.removeFromGroup();
+            }
+            targetHandle = null;
+        }
     }
 
     private void showDisplaySettingsDialog() {
@@ -2133,11 +2262,13 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void clearOverlayItems() {
         MapEventDispatcher dispatcher = mapView.getMapEventDispatcher();
-        for (MapItem item : overlayItems) {
+        for (MapItem item : new ArrayList<>(overlayItems)) {
             dispatcher.removeMapItemEventListener(item, this);
+            if (item.getGroup() != null) {
+                item.removeFromGroup();
+            }
         }
         overlayItems.clear();
-        overlayGroup.clearItems();
     }
 
     private static GeoPointMetaData[] wrap(List<GeoPoint> points) {
