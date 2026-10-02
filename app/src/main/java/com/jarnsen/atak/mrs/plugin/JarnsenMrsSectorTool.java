@@ -1641,7 +1641,10 @@ public class JarnsenMrsSectorTool extends Tool
         marker.setTitle(title);
         marker.setType("shape_marker");
         marker.setShowLabel(true);
+        marker.setAlwaysShowText(true);
+        marker.setLabelTextSize(15);
         marker.setColor(color);
+        setHandleIcon(marker, color, 52);
         marker.setClickable(true);
         marker.setEditable(true);
         marker.setMovable(true);
@@ -1661,6 +1664,23 @@ public class JarnsenMrsSectorTool extends Tool
         return marker;
     }
 
+    private void setHandleIcon(
+            Marker marker,
+            int color,
+            int size) {
+        String uri = "android.resource://"
+                + BuildConfig.APPLICATION_ID
+                + "/"
+                + R.drawable.mrs_handle;
+        Icon icon = new Icon.Builder()
+                .setImageUri(Icon.STATE_DEFAULT, uri)
+                .setColor(Icon.STATE_DEFAULT, color)
+                .setSize(size, size)
+                .setAnchor(Icon.ANCHOR_CENTER, Icon.ANCHOR_CENTER)
+                .build();
+        marker.setIcon(icon);
+    }
+
     private void handleEndpointDrag(MapItem item, MapEvent event) {
         if (!(item instanceof PointMapItem)
                 || event == null
@@ -1671,6 +1691,23 @@ public class JarnsenMrsSectorTool extends Tool
         String role = item.getMetaString(META_MRS_HANDLE, null);
         if (role == null) {
             return;
+        }
+
+        if (item instanceof Marker) {
+            Marker handle = (Marker) item;
+            if (MapEvent.ITEM_DRAG_STARTED.equals(event.getType())) {
+                setHandleIcon(
+                        handle,
+                        "origin".equals(role)
+                                ? COLOR_PRIMARY
+                                : COLOR_TARGET,
+                        76
+                );
+            }
+            if (MapEvent.ITEM_DRAG_STARTED.equals(event.getType())
+                    || MapEvent.ITEM_DRAG_CONTINUED.equals(event.getType())) {
+                DragMarkerHelper.getInstance().updateWidget(item);
+            }
         }
 
         GeoPointMetaData moved = mapView.inverseWithElevation(
@@ -1709,6 +1746,7 @@ public class JarnsenMrsSectorTool extends Tool
         redraw();
 
         if (MapEvent.ITEM_DRAG_DROPPED.equals(event.getType())) {
+            DragMarkerHelper.getInstance().hideWidget();
             commitEditorToWorkspace();
             removeEditHandles();
             editingExistingPoint = false;
