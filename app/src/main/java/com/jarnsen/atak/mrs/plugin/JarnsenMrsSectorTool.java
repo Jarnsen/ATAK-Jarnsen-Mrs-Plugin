@@ -780,7 +780,7 @@ public class JarnsenMrsSectorTool extends Tool
             byte[] hash = digest.digest(encoded);
             StringBuilder fingerprint = new StringBuilder();
             for (byte b : hash) {
-                fingerprint.append(String.format(Locale.US, "%02X", b));
+                fingerprint.append(String.format(Locale.US, "%02X", b & 0xFF));
             }
 
             String subject = certificate.getSubjectX500Principal().getName();
