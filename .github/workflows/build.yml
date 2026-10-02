@@ -153,8 +153,28 @@ jobs:
         run: |
           find app/build/outputs -type f -name '*.apk' -print 2>/dev/null || true
 
-      - name: Upload plugin APK
+      - name: Create TAK.gov source archive
         if: success()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          VERSION="$(sed -n 's/.*ext.PLUGIN_VERSION = "\([^"]*\)".*/\1/p' app/build.gradle | head -n 1)"
+          test -n "$VERSION"
+          SOURCE_ZIP="Jarnsen-Mrs-Plugin-${VERSION}-TAKgov-Source.zip"
+          git archive --format=zip --output="$SOURCE_ZIP" HEAD
+          unzip -t "$SOURCE_ZIP"
+          sha256sum "$SOURCE_ZIP"
+          echo "SOURCE_ZIP=$SOURCE_ZIP" >> "$GITHUB_ENV"
+
+      - name: Upload TAK.gov source archive
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jarnsen-Mrs-Plugin-TAKgov-SOURCE
+          path: ${{ env.SOURCE_ZIP }}
+          if-no-files-found: error
+
+      - name: Upload plugin APK        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Jarnsen-Mrs-Plugin-ATAK-5.6.0-RELEASE
