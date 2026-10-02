@@ -650,15 +650,16 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void pushUndoState() {
         String snapshot = drawingStore.snapshot(drawings.values());
-        if (!undoStates.isEmpty() && snapshot.equals(undoStates.peekLast())) {
-            return;
+        if (history.push(snapshot)) {
+            persistHistory();
         }
+    }
 
-        undoStates.addLast(snapshot);
-        while (undoStates.size() > MAX_UNDO_STATES) {
-            undoStates.removeFirst();
-        }
-        redoStates.clear();
+    private void persistHistory() {
+        drawingStore.saveHistory(
+                history.undoSnapshots(),
+                history.redoSnapshots()
+        );
     }
 
     private void restoreWorkspaceSnapshot(String snapshot) {
@@ -667,6 +668,7 @@ public class JarnsenMrsSectorTool extends Tool
             drawings.put(d.id, d);
         }
 
+        geometryCache.clear();
         activeDrawingId = null;
         creatingNewDrawing = false;
         detachEndpointListeners();
@@ -678,7 +680,10 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void undoWorkspace() {
-        if (undoStates.isEmpty()) {
+        String previous = history.undo(
+                drawingStore.snapshot(drawings.values())
+        );
+        if (previous == null) {
             Toast.makeText(
                     mapView.getContext(),
                     "Nichts zum Rückgängigmachen.",
@@ -688,14 +693,16 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
-        redoStates.addLast(drawingStore.snapshot(drawings.values()));
-        String previous = undoStates.removeLast();
+        persistHistory();
         restoreWorkspaceSnapshot(previous);
         showWorkspaceMenu();
     }
 
     private void redoWorkspace() {
-        if (redoStates.isEmpty()) {
+        String next = history.redo(
+                drawingStore.snapshot(drawings.values())
+        );
+        if (next == null) {
             Toast.makeText(
                     mapView.getContext(),
                     "Nichts zum Wiederholen.",
@@ -705,8 +712,7 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
-        undoStates.addLast(drawingStore.snapshot(drawings.values()));
-        String next = redoStates.removeLast();
+        persistHistory();
         restoreWorkspaceSnapshot(next);
         showWorkspaceMenu();
     }
@@ -766,8 +772,8 @@ public class JarnsenMrsSectorTool extends Tool
                         + "\nATAK Ziel-API: 5.6.0 CIV"
                         + "\nAPK-Signatur: " + signatureStatus
                         + "\nZeichnungen: " + drawings.size()
-                        + "\nUndo/Redo: " + undoStates.size()
-                        + "/" + redoStates.size()
+                        + "\nUndo/Redo: " + history.undoSize()
+                        + "/" + history.redoSize()
                         + "\nMax. Reichweite: 8 km (fest)"
                         + "\nLetzte MGRS: "
                         + (drawingStore.getLastMgrs().isEmpty()
