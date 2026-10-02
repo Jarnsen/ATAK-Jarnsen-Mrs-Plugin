@@ -1584,7 +1584,17 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void closeTool() {
         stopMapSelection();
+        removeEditHandles();
         editingExistingPoint = false;
+        creatingNewDrawing = false;
+        activeDrawingId = null;
+        detachEndpointListeners();
+        originPoint = null;
+        targetPoint = null;
+        drawingLabel = null;
+        originIsSelfSelection = false;
+        targetIsSelfSelection = false;
+        redraw();
         ToolManagerBroadcastReceiver.getInstance().endCurrentTool();
     }
 
