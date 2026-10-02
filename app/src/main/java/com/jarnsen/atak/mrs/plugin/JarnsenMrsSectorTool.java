@@ -73,6 +73,7 @@ public class JarnsenMrsSectorTool extends Tool
     private final List<MapItem> overlayItems = new ArrayList<>();
 
     private boolean selectionActive;
+    private boolean targetDragMoved;
     private SelectionStage selectionStage = SelectionStage.NONE;
     private AlertDialog activeDialog;
 
@@ -127,8 +128,42 @@ public class JarnsenMrsSectorTool extends Tool
 
     @Override
     public void onMapEvent(MapEvent event) {
+        String eventType = event.getType();
         GeoPointMetaData clicked = findPoint(event);
         if (clicked == null || !isUsable(clicked.get())) {
+            return;
+        }
+
+        if (selectionStage == SelectionStage.TARGET
+                && isTargetDragEvent(eventType)) {
+            boolean released = MapEvent.MAP_RELEASE.equals(eventType)
+                    || MapEvent.ITEM_RELEASE.equals(eventType);
+
+            if (!isDifferentFromOrigin(clicked.get())) {
+                if (released) {
+                    showSamePointWarning();
+                }
+                return;
+            }
+
+            if (MapEvent.MAP_DRAW.equals(eventType)) {
+                targetDragMoved = true;
+            }
+
+            MapItem boundItem = released && !targetDragMoved
+                    ? event.getItem()
+                    : null;
+            setTarget(clicked, boundItem);
+
+            if (released) {
+                stopMapSelection();
+                finishSetup();
+            }
+            return;
+        }
+
+        if (!MapEvent.ITEM_CLICK.equals(eventType)
+                && !MapEvent.MAP_CLICK.equals(eventType)) {
             return;
         }
 
@@ -446,14 +481,30 @@ public class JarnsenMrsSectorTool extends Tool
         dispatcher.addMapEventListener(MapEvent.ITEM_CLICK, this);
         dispatcher.addMapEventListener(MapEvent.MAP_CLICK, this);
 
+        if (stage == SelectionStage.TARGET) {
+            dispatcher.clearListeners(MapEvent.ITEM_PRESS);
+            dispatcher.clearListeners(MapEvent.ITEM_RELEASE);
+            dispatcher.clearListeners(MapEvent.MAP_PRESS);
+            dispatcher.clearListeners(MapEvent.MAP_DRAW);
+            dispatcher.clearListeners(MapEvent.MAP_RELEASE);
+            dispatcher.addMapEventListener(MapEvent.ITEM_PRESS, this);
+            dispatcher.addMapEventListener(MapEvent.ITEM_RELEASE, this);
+            dispatcher.addMapEventListener(MapEvent.MAP_PRESS, this);
+            dispatcher.addMapEventListener(MapEvent.MAP_DRAW, this);
+            dispatcher.addMapEventListener(MapEvent.MAP_RELEASE, this);
+        }
+
         mapView.getMapTouchController().skipDeconfliction(true);
         prompt.displayPrompt(
                 "Jarnsen Mrs: "
                         + (stage == SelectionStage.ORIGIN
                         ? "Startpunkt"
                         : "Zielpunkt")
-                        + " auf der Karte wählen"
+                        + (stage == SelectionStage.TARGET
+                        ? " berühren, ziehen und loslassen"
+                        : " auf der Karte wählen")
         );
+        targetDragMoved = false;
         selectionActive = true;
     }
 
@@ -467,7 +518,16 @@ public class JarnsenMrsSectorTool extends Tool
         mapView.getMapEventDispatcher().popListeners();
         mapView.getMapTouchController().skipDeconfliction(false);
         selectionActive = false;
+        targetDragMoved = false;
         selectionStage = SelectionStage.NONE;
+    }
+
+    private static boolean isTargetDragEvent(String eventType) {
+        return MapEvent.ITEM_PRESS.equals(eventType)
+                || MapEvent.ITEM_RELEASE.equals(eventType)
+                || MapEvent.MAP_PRESS.equals(eventType)
+                || MapEvent.MAP_DRAW.equals(eventType)
+                || MapEvent.MAP_RELEASE.equals(eventType);
     }
 
     private void finishSetup() {
