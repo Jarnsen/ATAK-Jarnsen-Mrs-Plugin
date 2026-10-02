@@ -174,7 +174,8 @@ jobs:
           path: ${{ env.SOURCE_ZIP }}
           if-no-files-found: error
 
-      - name: Upload plugin APK        if: success()
+      - name: Upload plugin APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Jarnsen-Mrs-Plugin-ATAK-5.6.0-RELEASE
