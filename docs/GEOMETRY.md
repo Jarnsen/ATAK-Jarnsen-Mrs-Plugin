@@ -23,6 +23,11 @@ Dezimalgrad-Koordinate oder ein Punkt auf der Karte sein. Die Sektorgeometrie
 benutzt den True-Bearing vom Start zum Ziel. Das ist korrekt, weil die Öffnung
 von ±600 Strich relativ zur Mittellinie definiert ist.
 
+Bei der Zielauswahl auf der Karte wird die komplette Darstellung ab dem
+Berühren live aufgebaut. Während des Ziehens werden Ziellinie, Klammer,
+Grundrichtung, Entfernung und Zielkoordinate fortlaufend neu berechnet; erst
+beim Loslassen wird die Zielposition übernommen.
+
 Die sichtbare Richtungsangabe wird auf Gitternord umgerechnet:
 
 1. True-Bearing Start → Ziel
