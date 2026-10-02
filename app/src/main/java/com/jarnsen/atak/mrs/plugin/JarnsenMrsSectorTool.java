@@ -60,6 +60,8 @@ public class JarnsenMrsSectorTool extends Tool
     private static final double RANGE_STEP_M = 500.0;
     private static final String PREF_NEXT_MRS_NUMBER =
             "jarnsen.mrs.next_number";
+    private static final String META_MRS_OVERLAY =
+            "jarnsen.mrs.overlay";
 
     // 600 NATO mil = 33.75 degrees.
     private static final double HALF_SECTOR_MIL = 600.0;
@@ -106,6 +108,33 @@ public class JarnsenMrsSectorTool extends Tool
     private SelectionStage selectionStage = SelectionStage.NONE;
     private AlertDialog activeDialog;
 
+    private final MapEventDispatcher.MapEventDispatchListener
+            overlayTapListener = event -> {
+                if (selectionActive
+                        || activeDialog != null
+                        || event == null
+                        || !MapEvent.ITEM_CLICK.equals(event.getType())) {
+                    return;
+                }
+
+                MapItem item = event.getItem();
+                if (item == null
+                        || !item.getMetaBoolean(META_MRS_OVERLAY, false)
+                        || originPoint == null
+                        || targetPoint == null) {
+                    return;
+                }
+
+                mapView.post(() -> {
+                    if (!selectionActive && activeDialog == null) {
+                        ToolManagerBroadcastReceiver.getInstance().startTool(
+                                TOOL_IDENTIFIER,
+                                new Bundle()
+                        );
+                    }
+                });
+            };
+
     private Marker selfMarker;
     private PointMapItem originItem;
     private GeoPointMetaData originPoint;
@@ -131,6 +160,10 @@ public class JarnsenMrsSectorTool extends Tool
 
         attachSelfListener();
         mapView.addOnMapMovedListener(this);
+        mapView.getMapEventDispatcher().addMapEventListenerToBase(
+                MapEvent.ITEM_CLICK,
+                overlayTapListener
+        );
     }
 
     @Override
@@ -167,7 +200,8 @@ public class JarnsenMrsSectorTool extends Tool
         if (selectionStage == SelectionStage.TARGET
                 && isTargetDragEvent(eventType)) {
             boolean released = MapEvent.MAP_RELEASE.equals(eventType)
-                    || MapEvent.ITEM_RELEASE.equals(eventType);
+                    || MapEvent.ITEM_RELEASE.equals(eventType)
+                    || MapEvent.ITEM_DRAG_DROPPED.equals(eventType);
 
             if (!isDifferentFromOrigin(clicked.get())) {
                 if (released) {
@@ -176,7 +210,9 @@ public class JarnsenMrsSectorTool extends Tool
                 return;
             }
 
-            if (MapEvent.MAP_DRAW.equals(eventType)) {
+            if (MapEvent.MAP_DRAW.equals(eventType)
+                    || MapEvent.ITEM_DRAG_STARTED.equals(eventType)
+                    || MapEvent.ITEM_DRAG_CONTINUED.equals(eventType)) {
                 targetDragMoved = true;
             }
 
@@ -291,6 +327,10 @@ public class JarnsenMrsSectorTool extends Tool
 
         clearOverlayItems();
         mapView.removeOnMapMovedListener(this);
+        mapView.getMapEventDispatcher().removeMapEventListenerFromBase(
+                MapEvent.ITEM_CLICK,
+                overlayTapListener
+        );
 
         ToolManagerBroadcastReceiver.getInstance().unregisterTool(
                 TOOL_IDENTIFIER
@@ -405,6 +445,7 @@ public class JarnsenMrsSectorTool extends Tool
                         new String[]{
                                 "Startpunkt ändern",
                                 "Zielpunkt ändern",
+                                "Start per MGRS eingeben",
                                 "Ziel per MGRS eingeben",
                                 "Beschriftung ändern",
                                 "Farbe ändern",
@@ -420,12 +461,16 @@ public class JarnsenMrsSectorTool extends Tool
                             } else if (which == 2) {
                                 editingExistingPoint = true;
                                 showMgrsCoordinateDialog(
-                                        SelectionStage.TARGET);
+                                        SelectionStage.ORIGIN);
                             } else if (which == 3) {
-                                showLabelDialog(false);
+                                editingExistingPoint = true;
+                                showMgrsCoordinateDialog(
+                                        SelectionStage.TARGET);
                             } else if (which == 4) {
-                                showColorSelectionDialog(false);
+                                showLabelDialog(false);
                             } else if (which == 5) {
+                                showColorSelectionDialog(false);
+                            } else if (which == 6) {
                                 showExistingDrawingDialog();
                             } else {
                                 closeTool();
@@ -731,11 +776,17 @@ public class JarnsenMrsSectorTool extends Tool
         if (stage == SelectionStage.TARGET) {
             dispatcher.clearListeners(MapEvent.ITEM_PRESS);
             dispatcher.clearListeners(MapEvent.ITEM_RELEASE);
+            dispatcher.clearListeners(MapEvent.ITEM_DRAG_STARTED);
+            dispatcher.clearListeners(MapEvent.ITEM_DRAG_CONTINUED);
+            dispatcher.clearListeners(MapEvent.ITEM_DRAG_DROPPED);
             dispatcher.clearListeners(MapEvent.MAP_PRESS);
             dispatcher.clearListeners(MapEvent.MAP_DRAW);
             dispatcher.clearListeners(MapEvent.MAP_RELEASE);
             dispatcher.addMapEventListener(MapEvent.ITEM_PRESS, this);
             dispatcher.addMapEventListener(MapEvent.ITEM_RELEASE, this);
+            dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_STARTED, this);
+            dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_CONTINUED, this);
+            dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_DROPPED, this);
             dispatcher.addMapEventListener(MapEvent.MAP_PRESS, this);
             dispatcher.addMapEventListener(MapEvent.MAP_DRAW, this);
             dispatcher.addMapEventListener(MapEvent.MAP_RELEASE, this);
@@ -772,6 +823,9 @@ public class JarnsenMrsSectorTool extends Tool
     private static boolean isTargetDragEvent(String eventType) {
         return MapEvent.ITEM_PRESS.equals(eventType)
                 || MapEvent.ITEM_RELEASE.equals(eventType)
+                || MapEvent.ITEM_DRAG_STARTED.equals(eventType)
+                || MapEvent.ITEM_DRAG_CONTINUED.equals(eventType)
+                || MapEvent.ITEM_DRAG_DROPPED.equals(eventType)
                 || MapEvent.MAP_PRESS.equals(eventType)
                 || MapEvent.MAP_DRAW.equals(eventType)
                 || MapEvent.MAP_RELEASE.equals(eventType);
@@ -1069,6 +1123,7 @@ public class JarnsenMrsSectorTool extends Tool
         }
 
         addCenterLine(own, target);
+        addInteractionHitBox(own, target);
         addArrowHead(target, trueBearing);
         addTargetMarker(target, trueBearing);
 
@@ -1230,8 +1285,31 @@ public class JarnsenMrsSectorTool extends Tool
         ));
     }
 
+    private void addInteractionHitBox(GeoPoint own, GeoPoint target) {
+        List<GeoPoint> pts = new ArrayList<>();
+        pts.add(own);
+        pts.add(target);
+
+        Polyline hitBox = makePolyline(
+                pts,
+                Color.argb(2, 255, 255, 255),
+                14.0,
+                Shape.BASIC_LINE_STYLE_SOLID
+        );
+        hitBox.setMetaBoolean(META_MRS_OVERLAY, true);
+        addLocalItem(hitBox);
+    }
+
+    private double getArrowLegMeters() {
+        return clamp(
+                getVisualResolution() * 32.0,
+                45.0,
+                360.0
+        );
+    }
+
     private void addArrowHead(GeoPoint target, double bearing) {
-        double leg = 110.0;
+        double leg = getArrowLegMeters();
         double back = normalizeDegrees(bearing + 180.0);
 
         List<GeoPoint> left = new ArrayList<>();
@@ -1265,7 +1343,11 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void addTargetMarker(GeoPoint target, double bearing) {
-        double d = 45.0;
+        double d = clamp(
+                getVisualResolution() * 12.0,
+                18.0,
+                140.0
+        );
 
         List<GeoPoint> cross1 = new ArrayList<>();
         cross1.add(pointFromAxis(target, bearing, -d, 0));
@@ -1298,26 +1380,26 @@ public class JarnsenMrsSectorTool extends Tool
             GeoPoint own,
             double bearing,
             double anchor) {
-        double resolution = getVisualResolution();
-
-        // Keep the bracket approximately the same visual size while zooming.
-        // The geometry remains in meters, derived from ATAK's meters/pixel.
+        // Tie the bracket directly to the visible arrow size. The arrow size
+        // itself follows ATAK's current meters-per-pixel resolution, so both
+        // elements grow/shrink together while zooming.
+        double arrowLeg = getArrowLegMeters();
         double maxHalfWidth = Math.max(
-                35.0,
-                Math.min(650.0, anchor * 0.55)
+                20.0,
+                Math.min(650.0, anchor * 0.45)
         );
         double halfWidth = Math.min(
-                Math.max(resolution * 58.0, 35.0),
+                clamp(arrowLeg * 1.40, 28.0, 650.0),
                 maxHalfWidth
         );
         double centerOffset = clamp(
-                resolution * 14.0,
-                12.0,
+                arrowLeg * 0.38,
+                10.0,
                 180.0
         );
         double endOffset = clamp(
-                resolution * 42.0,
-                32.0,
+                arrowLeg * 1.05,
+                28.0,
                 420.0
         );
 
@@ -1424,6 +1506,7 @@ public class JarnsenMrsSectorTool extends Tool
     private void addLocalItem(MapItem item) {
         item.setMetaBoolean("nevercot", true);
         item.setMetaBoolean("addToObjList", false);
+        item.setMetaBoolean(META_MRS_OVERLAY, true);
         item.setClickable(true);
         item.setEditable(false);
         item.setMovable(false);
