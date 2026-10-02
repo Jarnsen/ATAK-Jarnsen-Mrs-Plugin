@@ -649,13 +649,26 @@ public class JarnsenMrsSectorTool extends Tool
                     || drawing.label.trim().isEmpty()
                     ? "Mrs"
                     : drawing.label.trim();
-            title.setText(
+            SpannableString drawingTitle = new SpannableString(
                     "■  " + label + "\n"
                             + CoordinateFormatUtilities.formatToString(
                                     drawing.targetPoint().get(),
                                     CoordinateFormat.MGRS
                             )
             );
+            drawingTitle.setSpan(
+                    new ForegroundColorSpan(
+                            Color.rgb(
+                                    Color.red(drawing.fillColor),
+                                    Color.green(drawing.fillColor),
+                                    Color.blue(drawing.fillColor)
+                            )
+                    ),
+                    0,
+                    1,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            );
+            title.setText(drawingTitle);
             title.setTextSize(16.0f);
             title.setPadding(padding / 2, 0, 0, 0);
             title.setCompoundDrawablePadding(padding / 2);
