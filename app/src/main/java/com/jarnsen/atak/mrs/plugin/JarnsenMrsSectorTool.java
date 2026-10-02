@@ -108,38 +108,40 @@ public class JarnsenMrsSectorTool extends Tool
     private SelectionStage selectionStage = SelectionStage.NONE;
     private AlertDialog activeDialog;
 
-    private final MapEventDispatcher.MapEventDispatchListener
-            overlayTapListener = event -> {
-                if (selectionActive
-                        || activeDialog != null
-                        || event == null
-                        || !MapEvent.ITEM_CLICK.equals(event.getType())) {
-                    return;
-                }
-
-                MapItem item = event.getItem();
-                if (item == null
-                        || !item.getMetaBoolean(META_MRS_OVERLAY, false)
-                        || originPoint == null
-                        || targetPoint == null) {
-                    return;
-                }
-
-                mapView.post(() -> {
-                    if (!selectionActive && activeDialog == null) {
-                        ToolManagerBroadcastReceiver.getInstance().startTool(
-                                TOOL_IDENTIFIER,
-                                new Bundle()
-                        );
-                    }
-                });
-            };
-
     private Marker selfMarker;
     private PointMapItem originItem;
     private GeoPointMetaData originPoint;
     private PointMapItem targetItem;
     private GeoPointMetaData targetPoint;
+
+    private final MapEventDispatcher.MapEventDispatchListener
+            overlayTapListener = this::handleOverlayTap;
+
+    private void handleOverlayTap(MapEvent event) {
+        if (selectionActive
+                || activeDialog != null
+                || event == null
+                || !MapEvent.ITEM_CLICK.equals(event.getType())) {
+            return;
+        }
+
+        MapItem item = event.getItem();
+        if (item == null
+                || !item.getMetaBoolean(META_MRS_OVERLAY, false)
+                || originPoint == null
+                || targetPoint == null) {
+            return;
+        }
+
+        mapView.post(() -> {
+            if (!selectionActive && activeDialog == null) {
+                ToolManagerBroadcastReceiver.getInstance().startTool(
+                        TOOL_IDENTIFIER,
+                        new Bundle()
+                );
+            }
+        });
+    }
 
     private enum SelectionStage {
         NONE,
