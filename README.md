@@ -5,10 +5,11 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.2.2** ergänzt eine freie Auswahl von Start- und Zielpunkt, das
+Version **0.2.3** ergänzt eine freie Auswahl von Start- und Zielpunkt, das
 Bearbeiten und Entfernen per Antippen sowie eine automatisch mittig auf der
 Ziellinie positionierte Klammer und eine Live-Vorschau beim Verschieben des
-Ziels auf der Karte.
+Ziels auf der Karte. Beim Abschluss kann die Sektorfläche schnell eingefärbt
+werden.
 
 ### Bedienung
 
@@ -19,9 +20,12 @@ Ziels auf der Karte.
    Bei **Auf der Karte wählen** wird die Darstellung bereits beim Berühren
    aufgebaut, beim Ziehen live nachgeführt und erst beim Loslassen festgelegt.
 4. Das Plugin zeichnet den Sektor vom gewählten Start zum gewählten Ziel.
-5. Wird die eigene Position oder ein beweglicher ATAK-Marker verwendet, wird
+5. Optional eine Sektorfarbe auswählen: **Weiß, Rot, Gelb, Blau, Grün** oder
+   **Schwarz**. Mit **Standard** oder durch Schließen der Auswahl bleibt
+   die bisherige Standardfarbe erhalten.
+6. Wird die eigene Position oder ein beweglicher ATAK-Marker verwendet, wird
    die Darstellung bei Positionsänderungen automatisch neu berechnet.
-6. Die eingezeichnete Darstellung oder das Plugin-Symbol antippen. Im Menü kann
+7. Die eingezeichnete Darstellung oder das Plugin-Symbol antippen. Im Menü kann
    sie **Bearbeitet** (Start und Ziel neu wählen) oder **Entfernt** werden.
 
 ## Darstellung
@@ -34,6 +38,8 @@ Ziels auf der Karte.
 - Entfernungsbögen alle **500 m**
 - 500-m-Zwischenbögen: dünner / gestrichelt
 - volle Kilometer: stärker / durchgezogen
+- optionale transparente Sektorschattierung in Weiß, Rot, Gelb, Blau, Grün
+  oder Schwarz
 - Entfernungsbeschriftungen liegen jeweils auf der eigenen Seite vor dem
   zugehörigen Bogen
 - genau **eine** zentrale, um 90° gedrehte `)(`-Klammer in der Mitte der
