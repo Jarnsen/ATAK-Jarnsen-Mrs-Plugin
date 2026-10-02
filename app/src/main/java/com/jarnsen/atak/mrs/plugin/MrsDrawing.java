@@ -1,7 +1,5 @@
 package com.jarnsen.atak.mrs.plugin;
 
-import android.graphics.Color;
-
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 
@@ -12,7 +10,7 @@ import java.util.UUID;
 
 final class MrsDrawing {
 
-    static final int DEFAULT_FILL = Color.argb(42, 33, 182, 199);
+    static final int DEFAULT_FILL = 0x2A21B6C7;
 
     final String id;
     String label;
@@ -34,6 +32,7 @@ final class MrsDrawing {
     boolean showBracket = true;
     boolean showTargetMarker = true;
     boolean showFill = true;
+    boolean visible = true;
 
     long updatedAt = System.currentTimeMillis();
 
@@ -64,6 +63,7 @@ final class MrsDrawing {
         d.showBracket = showBracket;
         d.showTargetMarker = showTargetMarker;
         d.showFill = showFill;
+        d.visible = visible;
         d.updatedAt = updatedAt;
         return d;
     }
@@ -85,6 +85,7 @@ final class MrsDrawing {
         d.showBracket = showBracket;
         d.showTargetMarker = showTargetMarker;
         d.showFill = showFill;
+        d.visible = visible;
         d.updatedAt = System.currentTimeMillis();
         return d;
     }
@@ -115,6 +116,7 @@ final class MrsDrawing {
         o.put("showBracket", showBracket);
         o.put("showTargetMarker", showTargetMarker);
         o.put("showFill", showFill);
+        o.put("visible", visible);
         o.put("updatedAt", updatedAt);
         return o;
     }
@@ -136,6 +138,7 @@ final class MrsDrawing {
         d.showBracket = o.optBoolean("showBracket", true);
         d.showTargetMarker = o.optBoolean("showTargetMarker", true);
         d.showFill = o.optBoolean("showFill", true);
+        d.visible = o.optBoolean("visible", true);
         d.updatedAt = o.optLong("updatedAt", System.currentTimeMillis());
         return d;
     }
