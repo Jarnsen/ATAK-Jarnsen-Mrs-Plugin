@@ -1,6 +1,8 @@
 package com.jarnsen.atak.mrs.plugin;
 
 import android.app.AlertDialog;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -34,9 +36,12 @@ import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.map.AtakMapView;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -62,6 +67,11 @@ public class JarnsenMrsSectorTool extends Tool
             "jarnsen.mrs.next_number";
     private static final String META_MRS_OVERLAY =
             "jarnsen.mrs.overlay";
+    private static final String META_MRS_DRAWING_ID =
+            "jarnsen.mrs.drawing_id";
+    private static final String META_MRS_HANDLE =
+            "jarnsen.mrs.handle";
+    private static final int MAX_UNDO_STATES = 20;
 
     // 600 NATO mil = 33.75 degrees.
     private static final double HALF_SECTOR_MIL = 600.0;
@@ -98,6 +108,11 @@ public class JarnsenMrsSectorTool extends Tool
     private final MapGroup overlayGroup;
     private final TextContainer prompt;
     private final List<MapItem> overlayItems = new ArrayList<>();
+    private final MrsDrawingStore drawingStore;
+    private final LinkedHashMap<String, MrsDrawing> drawings =
+            new LinkedHashMap<>();
+    private final ArrayDeque<String> undoStates = new ArrayDeque<>();
+    private final ArrayDeque<String> redoStates = new ArrayDeque<>();
 
     private boolean selectionActive;
     private boolean targetDragMoved;
@@ -107,6 +122,15 @@ public class JarnsenMrsSectorTool extends Tool
     private String drawingLabel;
     private SelectionStage selectionStage = SelectionStage.NONE;
     private AlertDialog activeDialog;
+    private String activeDrawingId;
+    private String renderDrawingId;
+    private MrsDrawing renderDrawing;
+    private boolean creatingNewDrawing;
+    private boolean originIsSelfSelection;
+    private boolean targetIsSelfSelection;
+    private boolean handleDragMode;
+    private Marker originHandle;
+    private Marker targetHandle;
 
     private Marker selfMarker;
     private PointMapItem originItem;
@@ -154,6 +178,10 @@ public class JarnsenMrsSectorTool extends Tool
         this.mapView = mapView;
         this.overlayGroup = overlayGroup;
         this.prompt = TextContainer.getInstance();
+        this.drawingStore = new MrsDrawingStore(mapView.getContext());
+        for (MrsDrawing drawing : drawingStore.load()) {
+            drawings.put(drawing.id, drawing);
+        }
 
         ToolManagerBroadcastReceiver.getInstance().registerTool(
                 TOOL_IDENTIFIER,
@@ -166,6 +194,7 @@ public class JarnsenMrsSectorTool extends Tool
                 MapEvent.ITEM_CLICK,
                 overlayTapListener
         );
+        mapView.post(this::redraw);
     }
 
     @Override
