@@ -38,6 +38,10 @@ import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.map.AtakMapView;
 
+import java.io.ByteArrayInputStream;
+import java.security.MessageDigest;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -718,20 +722,7 @@ public class JarnsenMrsSectorTool extends Tool
         } catch (Exception ignored) {
         }
 
-        String signatureStatus = "nicht ermittelt";
-        try {
-            android.content.pm.PackageInfo info = mapView.getContext()
-                    .getPackageManager()
-                    .getPackageInfo(
-                            mapView.getContext().getPackageName(),
-                            android.content.pm.PackageManager.GET_SIGNATURES
-                    );
-            int count = info.signatures == null ? 0 : info.signatures.length;
-            signatureStatus = count > 0
-                    ? "vorhanden (" + count + ")"
-                    : "keine Signatur";
-        } catch (Exception ignored) {
-        }
+        String signatureStatus = getSignatureSummary();
 
         String message =
                 "Plugin: " + BuildConfig.VERSION_NAME
@@ -763,6 +754,46 @@ public class JarnsenMrsSectorTool extends Tool
 
         activeDialog = dialog;
         dialog.show();
+    }
+
+    private String getSignatureSummary() {
+        try {
+            android.content.pm.PackageInfo info = mapView.getContext()
+                    .getPackageManager()
+                    .getPackageInfo(
+                            mapView.getContext().getPackageName(),
+                            android.content.pm.PackageManager.GET_SIGNATURES
+                    );
+
+            if (info.signatures == null || info.signatures.length == 0) {
+                return "keine Signatur";
+            }
+
+            byte[] encoded = info.signatures[0].toByteArray();
+            X509Certificate certificate = (X509Certificate)
+                    CertificateFactory.getInstance("X.509")
+                            .generateCertificate(
+                                    new ByteArrayInputStream(encoded)
+                            );
+
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(encoded);
+            StringBuilder fingerprint = new StringBuilder();
+            for (byte b : hash) {
+                fingerprint.append(String.format(Locale.US, "%02X", b));
+            }
+
+            String subject = certificate.getSubjectX500Principal().getName();
+            if (subject.length() > 90) {
+                subject = subject.substring(0, 90) + "…";
+            }
+
+            return subject + "\nZertifikat SHA-256: " + fingerprint;
+        } catch (Exception e) {
+            lastDiagnosticError =
+                    "Signaturprüfung: " + e.getClass().getSimpleName();
+            return "nicht ermittelt";
+        }
     }
 
     private void showPointSourceDialog(final SelectionStage stage) {
@@ -806,7 +837,9 @@ public class JarnsenMrsSectorTool extends Tool
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle(getDrawingLabel())
                 .setMessage(
-                        "Zielkoordinate (MGRS)\n"
+                        "Start (MGRS)\n"
+                                + formatOriginCoordinate()
+                                + "\n\nZiel (MGRS)\n"
                                 + formatTargetCoordinate()
                 )
                 .setItems(
@@ -817,6 +850,8 @@ public class JarnsenMrsSectorTool extends Tool
                                 "Bearbeiten",
                                 "Kopie erstellen",
                                 "Entfernen",
+                                "Rückgängig",
+                                "Wiederholen",
                                 "Schließen"
                         },
                         (ignored, which) -> {
@@ -835,6 +870,10 @@ public class JarnsenMrsSectorTool extends Tool
                                 duplicateActiveDrawing();
                             } else if (which == 5) {
                                 confirmDeleteActiveDrawing();
+                            } else if (which == 6) {
+                                undoWorkspace();
+                            } else if (which == 7) {
+                                redoWorkspace();
                             } else {
                                 closeTool();
                             }
@@ -962,7 +1001,10 @@ public class JarnsenMrsSectorTool extends Tool
         marker.setClickable(true);
         marker.setEditable(true);
         marker.setMovable(true);
+        marker.setEditing(true);
         marker.setMetaBoolean("drag", true);
+        marker.setMetaBoolean("movable", true);
+        marker.setMetaBoolean("removable", false);
         marker.setMetaBoolean("nevercot", true);
         marker.setMetaBoolean("addToObjList", false);
         marker.setMetaString(META_MRS_HANDLE, role);
@@ -1036,6 +1078,7 @@ public class JarnsenMrsSectorTool extends Tool
         MapEventDispatcher dispatcher = mapView.getMapEventDispatcher();
 
         if (originHandle != null) {
+            originHandle.setEditing(false);
             dispatcher.removeMapItemEventListener(originHandle, this);
             if (originHandle.getGroup() != null) {
                 originHandle.removeFromGroup();
@@ -1044,6 +1087,7 @@ public class JarnsenMrsSectorTool extends Tool
         }
 
         if (targetHandle != null) {
+            targetHandle.setEditing(false);
             dispatcher.removeMapItemEventListener(targetHandle, this);
             if (targetHandle.getGroup() != null) {
                 targetHandle.removeFromGroup();
@@ -2028,7 +2072,8 @@ public class JarnsenMrsSectorTool extends Tool
                             own,
                             trueBearing,
                             range,
-                            ringIndex
+                            ringIndex,
+                            bracketAnchor
                     );
                 }
             }
@@ -2206,11 +2251,29 @@ public class JarnsenMrsSectorTool extends Tool
             GeoPoint own,
             double bearing,
             double range,
-            int ringIndex) {
+            int ringIndex,
+            double bracketAnchor) {
 
         double resolution = getVisualResolution();
-        double cross = (ringIndex % 2 == 0 ? 1.0 : -1.0)
+        double side = ringIndex % 2 == 0 ? 1.0 : -1.0;
+        double cross = side
                 * clamp(resolution * 9.0, 0.0, 85.0);
+
+        // Keep ring labels clear of the central bracket/annotation cluster.
+        // The clearance follows the current meters-per-pixel resolution so it
+        // remains visually stable while zooming.
+        double bracketClearance = clamp(
+                resolution * 95.0,
+                140.0,
+                520.0
+        );
+        if (Math.abs(range - bracketAnchor) < bracketClearance) {
+            cross = side * clamp(
+                    resolution * 34.0,
+                    70.0,
+                    260.0
+            );
+        }
         double start = Math.max(
                 40.0,
                 range - clamp(resolution * 125.0, 150.0, 320.0)
@@ -2584,6 +2647,17 @@ public class JarnsenMrsSectorTool extends Tool
                 Locale.GERMANY,
                 "%,.0f m",
                 meters
+        );
+    }
+
+    private String formatOriginCoordinate() {
+        if (originPoint == null || !isUsable(originPoint.get())) {
+            return "Nicht verfügbar";
+        }
+
+        return CoordinateFormatUtilities.formatToString(
+                originPoint.get(),
+                CoordinateFormat.MGRS
         );
     }
 
