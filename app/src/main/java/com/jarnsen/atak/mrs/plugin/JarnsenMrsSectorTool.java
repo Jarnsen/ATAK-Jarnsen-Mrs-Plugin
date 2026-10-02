@@ -1,11 +1,15 @@
 package com.jarnsen.atak.mrs.plugin;
 
 import android.app.AlertDialog;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
@@ -34,9 +38,12 @@ import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.map.AtakMapView;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -60,6 +67,13 @@ public class JarnsenMrsSectorTool extends Tool
     private static final double RANGE_STEP_M = 500.0;
     private static final String PREF_NEXT_MRS_NUMBER =
             "jarnsen.mrs.next_number";
+    private static final String META_MRS_OVERLAY =
+            "jarnsen.mrs.overlay";
+    private static final String META_MRS_DRAWING_ID =
+            "jarnsen.mrs.drawing_id";
+    private static final String META_MRS_HANDLE =
+            "jarnsen.mrs.handle";
+    private static final int MAX_UNDO_STATES = 20;
 
     // 600 NATO mil = 33.75 degrees.
     private static final double HALF_SECTOR_MIL = 600.0;
@@ -96,6 +110,11 @@ public class JarnsenMrsSectorTool extends Tool
     private final MapGroup overlayGroup;
     private final TextContainer prompt;
     private final List<MapItem> overlayItems = new ArrayList<>();
+    private final MrsDrawingStore drawingStore;
+    private final LinkedHashMap<String, MrsDrawing> drawings =
+            new LinkedHashMap<>();
+    private final ArrayDeque<String> undoStates = new ArrayDeque<>();
+    private final ArrayDeque<String> redoStates = new ArrayDeque<>();
 
     private boolean selectionActive;
     private boolean targetDragMoved;
@@ -105,12 +124,55 @@ public class JarnsenMrsSectorTool extends Tool
     private String drawingLabel;
     private SelectionStage selectionStage = SelectionStage.NONE;
     private AlertDialog activeDialog;
+    private String activeDrawingId;
+    private String renderDrawingId;
+    private MrsDrawing renderDrawing;
+    private boolean creatingNewDrawing;
+    private boolean originIsSelfSelection;
+    private boolean targetIsSelfSelection;
+    private boolean handleDragMode;
+    private Marker originHandle;
+    private Marker targetHandle;
+    private String lastDiagnosticError = "—";
 
     private Marker selfMarker;
     private PointMapItem originItem;
     private GeoPointMetaData originPoint;
     private PointMapItem targetItem;
     private GeoPointMetaData targetPoint;
+
+    private final MapEventDispatcher.MapEventDispatchListener
+            overlayTapListener = this::handleOverlayTap;
+
+    private void handleOverlayTap(MapEvent event) {
+        if (selectionActive
+                || activeDialog != null
+                || event == null
+                || !MapEvent.ITEM_CLICK.equals(event.getType())) {
+            return;
+        }
+
+        MapItem item = event.getItem();
+        if (item == null
+                || !item.getMetaBoolean(META_MRS_OVERLAY, false)) {
+            return;
+        }
+
+        String drawingId = item.getMetaString(META_MRS_DRAWING_ID, null);
+        if (drawingId == null || !drawings.containsKey(drawingId)) {
+            return;
+        }
+
+        mapView.post(() -> {
+            if (!selectionActive && activeDialog == null) {
+                loadDrawingForEdit(drawingId);
+                ToolManagerBroadcastReceiver.getInstance().startTool(
+                        TOOL_IDENTIFIER,
+                        new Bundle()
+                );
+            }
+        });
+    }
 
     private enum SelectionStage {
         NONE,
@@ -123,6 +185,10 @@ public class JarnsenMrsSectorTool extends Tool
         this.mapView = mapView;
         this.overlayGroup = overlayGroup;
         this.prompt = TextContainer.getInstance();
+        this.drawingStore = new MrsDrawingStore(mapView.getContext());
+        for (MrsDrawing drawing : drawingStore.load()) {
+            drawings.put(drawing.id, drawing);
+        }
 
         ToolManagerBroadcastReceiver.getInstance().registerTool(
                 TOOL_IDENTIFIER,
@@ -131,13 +197,22 @@ public class JarnsenMrsSectorTool extends Tool
 
         attachSelfListener();
         mapView.addOnMapMovedListener(this);
+        mapView.getMapEventDispatcher().addMapEventListenerToBase(
+                MapEvent.ITEM_CLICK,
+                overlayTapListener
+        );
+        mapView.post(this::redraw);
     }
 
     @Override
     public boolean onToolBegin(Bundle extras) {
         attachSelfListener();
-        if (originPoint != null && targetPoint != null) {
+        if (activeDrawingId != null
+                && originPoint != null
+                && targetPoint != null) {
             showExistingDrawingDialog();
+        } else if (!drawings.isEmpty()) {
+            showWorkspaceMenu();
         } else {
             startNewSetup();
         }
@@ -147,6 +222,7 @@ public class JarnsenMrsSectorTool extends Tool
     @Override
     public void onToolEnd() {
         stopMapSelection();
+        removeEditHandles();
 
         if (activeDialog != null) {
             activeDialog.dismiss();
@@ -167,7 +243,8 @@ public class JarnsenMrsSectorTool extends Tool
         if (selectionStage == SelectionStage.TARGET
                 && isTargetDragEvent(eventType)) {
             boolean released = MapEvent.MAP_RELEASE.equals(eventType)
-                    || MapEvent.ITEM_RELEASE.equals(eventType);
+                    || MapEvent.ITEM_RELEASE.equals(eventType)
+                    || MapEvent.ITEM_DRAG_DROPPED.equals(eventType);
 
             if (!isDifferentFromOrigin(clicked.get())) {
                 if (released) {
@@ -176,7 +253,9 @@ public class JarnsenMrsSectorTool extends Tool
                 return;
             }
 
-            if (MapEvent.MAP_DRAW.equals(eventType)) {
+            if (MapEvent.MAP_DRAW.equals(eventType)
+                    || MapEvent.ITEM_DRAG_STARTED.equals(eventType)
+                    || MapEvent.ITEM_DRAG_CONTINUED.equals(eventType)) {
                 targetDragMoved = true;
             }
 
@@ -227,11 +306,29 @@ public class JarnsenMrsSectorTool extends Tool
 
     @Override
     public void onMapItemMapEvent(MapItem item, MapEvent event) {
+        if (item == null || event == null) {
+            return;
+        }
+
+        if (handleDragMode
+                && item.getMetaString(META_MRS_HANDLE, null) != null
+                && (MapEvent.ITEM_DRAG_STARTED.equals(event.getType())
+                || MapEvent.ITEM_DRAG_CONTINUED.equals(event.getType())
+                || MapEvent.ITEM_DRAG_DROPPED.equals(event.getType()))) {
+            handleEndpointDrag(item, event);
+            return;
+        }
+
         if (!MapEvent.ITEM_CLICK.equals(event.getType())
                 || selectionActive
                 || activeDialog != null
-                || !overlayItems.contains(item)) {
+                || !item.getMetaBoolean(META_MRS_OVERLAY, false)) {
             return;
+        }
+
+        String drawingId = item.getMetaString(META_MRS_DRAWING_ID, null);
+        if (drawingId != null && drawings.containsKey(drawingId)) {
+            loadDrawingForEdit(drawingId);
         }
 
         ToolManagerBroadcastReceiver.getInstance().startTool(
@@ -259,7 +356,8 @@ public class JarnsenMrsSectorTool extends Tool
 
     @Override
     public void onMapMoved(AtakMapView view, boolean animate) {
-        if (originPoint == null || targetPoint == null) {
+        if (drawings.isEmpty()
+                && (originPoint == null || targetPoint == null)) {
             return;
         }
 
@@ -289,8 +387,13 @@ public class JarnsenMrsSectorTool extends Tool
             selfMarker = null;
         }
 
+        removeEditHandles();
         clearOverlayItems();
         mapView.removeOnMapMovedListener(this);
+        mapView.getMapEventDispatcher().removeMapEventListenerFromBase(
+                MapEvent.ITEM_CLICK,
+                overlayTapListener
+        );
 
         ToolManagerBroadcastReceiver.getInstance().unregisterTool(
                 TOOL_IDENTIFIER
@@ -323,6 +426,343 @@ public class JarnsenMrsSectorTool extends Tool
                 targetPoint = selfMarker.getGeoPointMetaData();
             }
         }
+    }
+
+    private void showWorkspaceMenu() {
+        activeDrawingId = null;
+        detachEndpointListeners();
+        originPoint = null;
+        targetPoint = null;
+        drawingLabel = null;
+        creatingNewDrawing = false;
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Jarnsen Mrs Plugin")
+                .setMessage(
+                        drawings.size() + " gespeicherte Zeichnung"
+                                + (drawings.size() == 1 ? "" : "en")
+                )
+                .setItems(
+                        new String[]{
+                                "Neue Zeichnung",
+                                "Zeichnungen verwalten",
+                                "Rückgängig",
+                                "Wiederholen",
+                                "Diagnose",
+                                "Schließen"
+                        },
+                        (ignored, which) -> {
+                            activeDialog = null;
+                            if (which == 0) {
+                                startNewSetup();
+                            } else if (which == 1) {
+                                showDrawingListDialog();
+                            } else if (which == 2) {
+                                undoWorkspace();
+                            } else if (which == 3) {
+                                redoWorkspace();
+                            } else if (which == 4) {
+                                showDiagnosticsDialog();
+                            } else {
+                                closeTool();
+                            }
+                        }
+                )
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    closeTool();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void showDrawingListDialog() {
+        if (drawings.isEmpty()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Noch keine Zeichnungen vorhanden.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showWorkspaceMenu();
+            return;
+        }
+
+        final List<MrsDrawing> list = new ArrayList<>(drawings.values());
+        CharSequence[] labels = new CharSequence[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            MrsDrawing d = list.get(i);
+            labels[i] = (d.label == null || d.label.trim().isEmpty()
+                    ? "Mrs"
+                    : d.label.trim())
+                    + "  ·  "
+                    + CoordinateFormatUtilities.formatToString(
+                            d.targetPoint().get(),
+                            CoordinateFormat.MGRS
+                    );
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Zeichnungen")
+                .setItems(labels, (ignored, which) -> {
+                    activeDialog = null;
+                    loadDrawingForEdit(list.get(which).id);
+                    showExistingDrawingDialog();
+                })
+                .setNegativeButton("Zurück", (ignored, which) -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void loadDrawingForEdit(String drawingId) {
+        MrsDrawing d = drawings.get(drawingId);
+        if (d == null) {
+            return;
+        }
+
+        detachEndpointListeners();
+        activeDrawingId = d.id;
+        creatingNewDrawing = false;
+        drawingLabel = d.label;
+        sectorFillColor = d.fillColor;
+        originIsSelfSelection = d.originSelf;
+        targetIsSelfSelection = d.targetSelf;
+
+        attachSelfListener();
+
+        if (d.originSelf
+                && selfMarker != null
+                && isUsable(selfMarker.getPoint())) {
+            originItem = selfMarker;
+            originPoint = selfMarker.getGeoPointMetaData();
+        } else {
+            originItem = null;
+            originPoint = d.originPoint();
+        }
+
+        if (d.targetSelf
+                && selfMarker != null
+                && isUsable(selfMarker.getPoint())) {
+            targetItem = selfMarker;
+            targetPoint = selfMarker.getGeoPointMetaData();
+        } else {
+            targetItem = null;
+            targetPoint = d.targetPoint();
+        }
+
+        redraw();
+    }
+
+    private MrsDrawing drawingFromEditor(String requestedId) {
+        String id = requestedId;
+        MrsDrawing existing = id == null ? null : drawings.get(id);
+        MrsDrawing d = existing == null
+                ? new MrsDrawing()
+                : existing.copy();
+
+        if (originPoint == null || targetPoint == null
+                || !isUsable(originPoint.get())
+                || !isUsable(targetPoint.get())) {
+            return null;
+        }
+
+        GeoPoint origin = originPoint.get();
+        GeoPoint target = targetPoint.get();
+
+        d.label = getDrawingLabel();
+        d.originLat = origin.getLatitude();
+        d.originLon = origin.getLongitude();
+        d.targetLat = target.getLatitude();
+        d.targetLon = target.getLongitude();
+        d.originSelf = originIsSelfSelection;
+        d.targetSelf = targetIsSelfSelection;
+        d.fillColor = sectorFillColor;
+        d.fillAlpha = Color.alpha(sectorFillColor);
+        d.updatedAt = System.currentTimeMillis();
+        return d;
+    }
+
+    private void commitEditorToWorkspace() {
+        MrsDrawing d = drawingFromEditor(activeDrawingId);
+        if (d == null) {
+            return;
+        }
+
+        if (activeDrawingId == null) {
+            activeDrawingId = d.id;
+        }
+
+        drawings.put(activeDrawingId, d);
+        creatingNewDrawing = false;
+        drawingStore.save(drawings.values());
+        redraw();
+    }
+
+    private void pushUndoState() {
+        String snapshot = drawingStore.snapshot(drawings.values());
+        if (!undoStates.isEmpty() && snapshot.equals(undoStates.peekLast())) {
+            return;
+        }
+
+        undoStates.addLast(snapshot);
+        while (undoStates.size() > MAX_UNDO_STATES) {
+            undoStates.removeFirst();
+        }
+        redoStates.clear();
+    }
+
+    private void restoreWorkspaceSnapshot(String snapshot) {
+        drawings.clear();
+        for (MrsDrawing d : drawingStore.restore(snapshot)) {
+            drawings.put(d.id, d);
+        }
+
+        activeDrawingId = null;
+        creatingNewDrawing = false;
+        detachEndpointListeners();
+        originPoint = null;
+        targetPoint = null;
+        drawingLabel = null;
+        drawingStore.save(drawings.values());
+        redraw();
+    }
+
+    private void undoWorkspace() {
+        if (undoStates.isEmpty()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Nichts zum Rückgängigmachen.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showWorkspaceMenu();
+            return;
+        }
+
+        redoStates.addLast(drawingStore.snapshot(drawings.values()));
+        String previous = undoStates.removeLast();
+        restoreWorkspaceSnapshot(previous);
+        showWorkspaceMenu();
+    }
+
+    private void redoWorkspace() {
+        if (redoStates.isEmpty()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Nichts zum Wiederholen.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showWorkspaceMenu();
+            return;
+        }
+
+        undoStates.addLast(drawingStore.snapshot(drawings.values()));
+        String next = redoStates.removeLast();
+        restoreWorkspaceSnapshot(next);
+        showWorkspaceMenu();
+    }
+
+    private void deleteActiveDrawing() {
+        if (activeDrawingId == null || !drawings.containsKey(activeDrawingId)) {
+            showWorkspaceMenu();
+            return;
+        }
+
+        pushUndoState();
+        drawings.remove(activeDrawingId);
+        drawingStore.save(drawings.values());
+        activeDrawingId = null;
+        creatingNewDrawing = false;
+        detachEndpointListeners();
+        originPoint = null;
+        targetPoint = null;
+        drawingLabel = null;
+        removeEditHandles();
+        redraw();
+        showWorkspaceMenu();
+    }
+
+    private void duplicateActiveDrawing() {
+        MrsDrawing source = drawings.get(activeDrawingId);
+        if (source == null) {
+            return;
+        }
+
+        pushUndoState();
+        MrsDrawing copy = source.copyAsNew();
+        copy.label = (source.label == null || source.label.trim().isEmpty())
+                ? "Mrs Kopie"
+                : source.label.trim() + " Kopie";
+        drawings.put(copy.id, copy);
+        drawingStore.save(drawings.values());
+        loadDrawingForEdit(copy.id);
+        showExistingDrawingDialog();
+    }
+
+    private void showDiagnosticsDialog() {
+        String atakVersion = "unbekannt";
+        try {
+            atakVersion = mapView.getContext()
+                    .getPackageManager()
+                    .getPackageInfo("com.atakmap.app", 0)
+                    .versionName;
+        } catch (Exception ignored) {
+        }
+
+        String signatureStatus = "nicht ermittelt";
+        try {
+            android.content.pm.PackageInfo info = mapView.getContext()
+                    .getPackageManager()
+                    .getPackageInfo(
+                            mapView.getContext().getPackageName(),
+                            android.content.pm.PackageManager.GET_SIGNATURES
+                    );
+            int count = info.signatures == null ? 0 : info.signatures.length;
+            signatureStatus = count > 0
+                    ? "vorhanden (" + count + ")"
+                    : "keine Signatur";
+        } catch (Exception ignored) {
+        }
+
+        String message =
+                "Plugin: " + BuildConfig.VERSION_NAME
+                        + "\nATAK installiert: " + atakVersion
+                        + "\nATAK Ziel-API: 5.6.0 CIV"
+                        + "\nAPK-Signatur: " + signatureStatus
+                        + "\nZeichnungen: " + drawings.size()
+                        + "\nUndo/Redo: " + undoStates.size()
+                        + "/" + redoStates.size()
+                        + "\nMax. Reichweite: 8 km (fest)"
+                        + "\nLetzte MGRS: "
+                        + (drawingStore.getLastMgrs().isEmpty()
+                        ? "—"
+                        : drawingStore.getLastMgrs())
+                        + "\nLetzter Fehler: " + lastDiagnosticError;
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Jarnsen Mrs Diagnose")
+                .setMessage(message)
+                .setPositiveButton("OK", (ignored, which) -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
     }
 
     private void showPointSourceDialog(final SelectionStage stage) {
@@ -371,18 +811,30 @@ public class JarnsenMrsSectorTool extends Tool
                 )
                 .setItems(
                         new String[]{
+                                "Ziel neu setzen",
+                                "Start neu setzen",
+                                "Punkte direkt ziehen",
                                 "Bearbeiten",
+                                "Kopie erstellen",
                                 "Entfernen",
                                 "Schließen"
                         },
                         (ignored, which) -> {
                             activeDialog = null;
                             if (which == 0) {
-                                showEditDrawingDialog();
+                                pushUndoState();
+                                beginEditPoint(SelectionStage.TARGET);
                             } else if (which == 1) {
-                                resetEndpoints();
-                                drawingLabel = null;
-                                closeTool();
+                                pushUndoState();
+                                beginEditPoint(SelectionStage.ORIGIN);
+                            } else if (which == 2) {
+                                beginHandleEdit();
+                            } else if (which == 3) {
+                                showEditDrawingDialog();
+                            } else if (which == 4) {
+                                duplicateActiveDrawing();
+                            } else if (which == 5) {
+                                confirmDeleteActiveDrawing();
                             } else {
                                 closeTool();
                             }
@@ -405,27 +857,47 @@ public class JarnsenMrsSectorTool extends Tool
                         new String[]{
                                 "Startpunkt ändern",
                                 "Zielpunkt ändern",
+                                "Start per MGRS eingeben",
                                 "Ziel per MGRS eingeben",
                                 "Beschriftung ändern",
                                 "Farbe ändern",
+                                "Darstellung",
+                                "Transparenz ändern",
+                                "Punkte direkt ziehen",
                                 "Zurück",
                                 "Schließen"
                         },
                         (ignored, which) -> {
                             activeDialog = null;
                             if (which == 0) {
+                                pushUndoState();
                                 beginEditPoint(SelectionStage.ORIGIN);
                             } else if (which == 1) {
+                                pushUndoState();
                                 beginEditPoint(SelectionStage.TARGET);
                             } else if (which == 2) {
+                                pushUndoState();
+                                editingExistingPoint = true;
+                                showMgrsCoordinateDialog(
+                                        SelectionStage.ORIGIN);
+                            } else if (which == 3) {
+                                pushUndoState();
                                 editingExistingPoint = true;
                                 showMgrsCoordinateDialog(
                                         SelectionStage.TARGET);
-                            } else if (which == 3) {
-                                showLabelDialog(false);
                             } else if (which == 4) {
-                                showColorSelectionDialog(false);
+                                pushUndoState();
+                                showLabelDialog(false);
                             } else if (which == 5) {
+                                pushUndoState();
+                                showColorSelectionDialog(false);
+                            } else if (which == 6) {
+                                showDisplaySettingsDialog();
+                            } else if (which == 7) {
+                                showTransparencyDialog();
+                            } else if (which == 8) {
+                                beginHandleEdit();
+                            } else if (which == 9) {
                                 showExistingDrawingDialog();
                             } else {
                                 closeTool();
@@ -442,16 +914,287 @@ public class JarnsenMrsSectorTool extends Tool
         dialog.show();
     }
 
+    private void beginHandleEdit() {
+        if (activeDrawingId == null
+                || originPoint == null
+                || targetPoint == null) {
+            showExistingDrawingDialog();
+            return;
+        }
+
+        pushUndoState();
+        removeEditHandles();
+        handleDragMode = true;
+        editingExistingPoint = true;
+
+        originHandle = createEditHandle(
+                "Start",
+                originPoint,
+                "origin",
+                COLOR_PRIMARY
+        );
+        targetHandle = createEditHandle(
+                "Ziel",
+                targetPoint,
+                "target",
+                COLOR_TARGET
+        );
+
+        prompt.displayPrompt(
+                "Start oder Ziel anfassen, ziehen und loslassen"
+        );
+    }
+
+    private Marker createEditHandle(
+            String title,
+            GeoPointMetaData point,
+            String role,
+            int color) {
+
+        Marker marker = new Marker(
+                point,
+                UUID.randomUUID().toString()
+        );
+        marker.setTitle(title);
+        marker.setType("shape_marker");
+        marker.setShowLabel(true);
+        marker.setColor(color);
+        marker.setClickable(true);
+        marker.setEditable(true);
+        marker.setMovable(true);
+        marker.setMetaBoolean("drag", true);
+        marker.setMetaBoolean("nevercot", true);
+        marker.setMetaBoolean("addToObjList", false);
+        marker.setMetaString(META_MRS_HANDLE, role);
+        marker.setMetaString(META_MRS_DRAWING_ID, activeDrawingId);
+        overlayGroup.addItem(marker);
+        mapView.getMapEventDispatcher().addMapItemEventListener(
+                marker,
+                this
+        );
+        return marker;
+    }
+
+    private void handleEndpointDrag(MapItem item, MapEvent event) {
+        if (!(item instanceof PointMapItem)
+                || event == null
+                || event.getPointF() == null) {
+            return;
+        }
+
+        String role = item.getMetaString(META_MRS_HANDLE, null);
+        if (role == null) {
+            return;
+        }
+
+        GeoPointMetaData moved = mapView.inverseWithElevation(
+                event.getPointF().x,
+                event.getPointF().y
+        );
+        if (moved == null || !isUsable(moved.get())) {
+            return;
+        }
+
+        if ("origin".equals(role)) {
+            if (!isDifferentFromTarget(moved.get())) {
+                if (MapEvent.ITEM_DRAG_DROPPED.equals(event.getType())) {
+                    showSamePointWarning();
+                }
+                return;
+            }
+        } else if (!isDifferentFromOrigin(moved.get())) {
+            if (MapEvent.ITEM_DRAG_DROPPED.equals(event.getType())) {
+                showSamePointWarning();
+            }
+            return;
+        }
+
+        PointMapItem pointItem = (PointMapItem) item;
+        pointItem.setPoint(moved);
+
+        if ("origin".equals(role)) {
+            originPoint = moved;
+            originIsSelfSelection = false;
+        } else {
+            targetPoint = moved;
+            targetIsSelfSelection = false;
+        }
+
+        redraw();
+
+        if (MapEvent.ITEM_DRAG_DROPPED.equals(event.getType())) {
+            commitEditorToWorkspace();
+            removeEditHandles();
+            editingExistingPoint = false;
+            showExistingDrawingDialog();
+        }
+    }
+
+    private void removeEditHandles() {
+        handleDragMode = false;
+        prompt.closePrompt();
+        MapEventDispatcher dispatcher = mapView.getMapEventDispatcher();
+
+        if (originHandle != null) {
+            dispatcher.removeMapItemEventListener(originHandle, this);
+            if (originHandle.getGroup() != null) {
+                originHandle.removeFromGroup();
+            }
+            originHandle = null;
+        }
+
+        if (targetHandle != null) {
+            dispatcher.removeMapItemEventListener(targetHandle, this);
+            if (targetHandle.getGroup() != null) {
+                targetHandle.removeFromGroup();
+            }
+            targetHandle = null;
+        }
+    }
+
+    private void showDisplaySettingsDialog() {
+        MrsDrawing d = drawings.get(activeDrawingId);
+        if (d == null) {
+            showEditDrawingDialog();
+            return;
+        }
+
+        String[] labels = {
+                "500-m-Zwischenbögen",
+                "1-km-Bögen",
+                "Entfernungsbeschriftungen",
+                ")(-Klammer",
+                "Zielkreuz",
+                "Sektorfüllung"
+        };
+        boolean[] checked = {
+                d.showHalfKm,
+                d.showKm,
+                d.showRangeLabels,
+                d.showBracket,
+                d.showTargetMarker,
+                d.showFill
+        };
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle(getDrawingLabel() + " – Darstellung")
+                .setMultiChoiceItems(
+                        labels,
+                        checked,
+                        (ignored, which, isChecked) ->
+                                checked[which] = isChecked
+                )
+                .setPositiveButton("Übernehmen", (ignored, which) -> {
+                    activeDialog = null;
+                    pushUndoState();
+                    d.showHalfKm = checked[0];
+                    d.showKm = checked[1];
+                    d.showRangeLabels = checked[2];
+                    d.showBracket = checked[3];
+                    d.showTargetMarker = checked[4];
+                    d.showFill = checked[5];
+                    d.updatedAt = System.currentTimeMillis();
+                    drawingStore.save(drawings.values());
+                    redraw();
+                    showEditDrawingDialog();
+                })
+                .setNegativeButton("Abbrechen", (ignored, which) -> {
+                    activeDialog = null;
+                    showEditDrawingDialog();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void showTransparencyDialog() {
+        MrsDrawing d = drawings.get(activeDrawingId);
+        if (d == null) {
+            showEditDrawingDialog();
+            return;
+        }
+
+        final int[] percentages = {15, 30, 50, 70};
+        String[] labels = {"15 %", "30 %", "50 %", "70 %"};
+
+        int currentPercent = Math.round(
+                Color.alpha(d.fillColor) * 100.0f / 255.0f
+        );
+        int selected = 0;
+        int bestDistance = Integer.MAX_VALUE;
+        for (int i = 0; i < percentages.length; i++) {
+            int distance = Math.abs(percentages[i] - currentPercent);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                selected = i;
+            }
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle(getDrawingLabel() + " – Transparenz")
+                .setSingleChoiceItems(labels, selected, (ignored, which) -> {
+                    activeDialog = null;
+                    pushUndoState();
+                    int alpha = Math.round(
+                            percentages[which] * 255.0f / 100.0f
+                    );
+                    d.fillColor = Color.argb(
+                            alpha,
+                            Color.red(d.fillColor),
+                            Color.green(d.fillColor),
+                            Color.blue(d.fillColor)
+                    );
+                    d.fillAlpha = alpha;
+                    d.updatedAt = System.currentTimeMillis();
+                    sectorFillColor = d.fillColor;
+                    drawingStore.save(drawings.values());
+                    redraw();
+                    ignored.dismiss();
+                    showEditDrawingDialog();
+                })
+                .setNegativeButton("Abbrechen", (ignored, which) -> {
+                    activeDialog = null;
+                    showEditDrawingDialog();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
     private void startNewSetup() {
         editingExistingPoint = false;
+        creatingNewDrawing = true;
+        activeDrawingId = null;
         resetEndpoints();
         drawingLabel = null;
+        sectorFillColor = COLOR_FILL;
+        originIsSelfSelection = false;
+        targetIsSelfSelection = false;
         showPointSourceDialog(SelectionStage.ORIGIN);
     }
 
     private void beginEditPoint(SelectionStage stage) {
         editingExistingPoint = true;
         showPointSourceDialog(stage);
+    }
+
+    private void confirmDeleteActiveDrawing() {
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle(getDrawingLabel() + " entfernen?")
+                .setMessage("Die Zeichnung kann anschließend über Rückgängig wiederhergestellt werden.")
+                .setPositiveButton("Entfernen", (ignored, which) -> {
+                    activeDialog = null;
+                    deleteActiveDrawing();
+                })
+                .setNegativeButton("Abbrechen", (ignored, which) -> {
+                    activeDialog = null;
+                    showExistingDrawingDialog();
+                })
+                .create();
+        activeDialog = dialog;
+        dialog.show();
     }
 
     private void chooseSelfPosition(SelectionStage stage) {
@@ -498,6 +1241,44 @@ public class JarnsenMrsSectorTool extends Tool
                 InputType.TYPE_CLASS_TEXT
                         | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
         );
+        mgrs.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(
+                    CharSequence s,
+                    int start,
+                    int count,
+                    int after) {
+            }
+
+            @Override
+            public void onTextChanged(
+                    CharSequence s,
+                    int start,
+                    int before,
+                    int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable editable) {
+                String value = normalizeMgrs(editable.toString());
+                if (value.length() < 5) {
+                    mgrs.setError(null);
+                    return;
+                }
+
+                try {
+                    GeoPoint point = CoordinateFormatUtilities.convert(
+                            value,
+                            CoordinateFormat.MGRS
+                    );
+                    mgrs.setError(isUsable(point)
+                            ? null
+                            : "MGRS ungültig");
+                } catch (Exception ignored) {
+                    mgrs.setError("MGRS noch unvollständig/ungültig");
+                }
+            }
+        });
 
         GeoPointMetaData current = stage == SelectionStage.ORIGIN
                 ? originPoint
@@ -507,8 +1288,10 @@ public class JarnsenMrsSectorTool extends Tool
                     current.get(),
                     CoordinateFormat.MGRS
             ));
-            mgrs.setSelection(mgrs.getText().length());
+        } else if (!drawingStore.getLastMgrs().isEmpty()) {
+            mgrs.setText(drawingStore.getLastMgrs());
         }
+        mgrs.setSelection(mgrs.getText().length());
 
         int padding = Math.round(
                 20.0f * mapView.getResources().getDisplayMetrics().density
@@ -524,11 +1307,20 @@ public class JarnsenMrsSectorTool extends Tool
                 .setTitle((stage == SelectionStage.ORIGIN
                         ? "Startpunkt"
                         : "Zielpunkt") + " – MGRS")
+                .setMessage(
+                        "MGRS kann direkt eingegeben oder aus der "
+                                + "Zwischenablage eingefügt werden."
+                )
                 .setView(holder)
                 .setPositiveButton("Übernehmen", null)
+                .setNeutralButton("Einfügen", null)
                 .setNegativeButton("Zurück", (ignored, which) -> {
                     activeDialog = null;
-                    showPointSourceDialog(stage);
+                    if (editingExistingPoint) {
+                        showEditDrawingDialog();
+                    } else {
+                        showPointSourceDialog(stage);
+                    }
                 })
                 .setOnCancelListener(ignored -> {
                     activeDialog = null;
@@ -536,46 +1328,82 @@ public class JarnsenMrsSectorTool extends Tool
                 })
                 .create();
 
-        dialog.setOnShowListener(ignored -> dialog.getButton(
-                AlertDialog.BUTTON_POSITIVE
-        ).setOnClickListener(button -> {
-            GeoPoint entered = parseMgrsCoordinate(mgrs);
-            if (entered == null) {
-                return;
-            }
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                    .setOnClickListener(button -> {
+                        ClipboardManager clipboard =
+                                (ClipboardManager) mapView.getContext()
+                                        .getSystemService(
+                                                Context.CLIPBOARD_SERVICE);
+                        if (clipboard == null
+                                || !clipboard.hasPrimaryClip()
+                                || clipboard.getPrimaryClip() == null
+                                || clipboard.getPrimaryClip()
+                                .getItemCount() == 0) {
+                            Toast.makeText(
+                                    mapView.getContext(),
+                                    "Zwischenablage ist leer.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+                            return;
+                        }
 
-            if (stage == SelectionStage.TARGET
-                    && !isDifferentFromOrigin(entered)) {
-                showSamePointWarning();
-                return;
-            }
+                        CharSequence text = clipboard.getPrimaryClip()
+                                .getItemAt(0)
+                                .coerceToText(mapView.getContext());
+                        if (text != null) {
+                            mgrs.setText(normalizeMgrs(text.toString()));
+                            mgrs.setSelection(mgrs.getText().length());
+                        }
+                    });
 
-            dialog.dismiss();
-            activeDialog = null;
-            GeoPointMetaData point = GeoPointMetaData.wrap(entered);
-            if (stage == SelectionStage.ORIGIN) {
-                setOrigin(point, null);
-                if (editingExistingPoint) {
-                    finishPointEdit();
-                } else {
-                    showPointSourceDialog(SelectionStage.TARGET);
-                }
-            } else {
-                setTarget(point, null);
-                if (editingExistingPoint) {
-                    finishPointEdit();
-                } else {
-                    finishSetup();
-                }
-            }
-        }));
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    .setOnClickListener(button -> {
+                        GeoPoint entered = parseMgrsCoordinate(mgrs);
+                        if (entered == null) {
+                            return;
+                        }
+
+                        if (stage == SelectionStage.TARGET
+                                && !isDifferentFromOrigin(entered)) {
+                            showSamePointWarning();
+                            return;
+                        }
+
+                        String normalized = normalizeMgrs(
+                                mgrs.getText().toString()
+                        );
+                        drawingStore.saveLastMgrs(normalized);
+
+                        dialog.dismiss();
+                        activeDialog = null;
+                        GeoPointMetaData point =
+                                GeoPointMetaData.wrap(entered);
+                        if (stage == SelectionStage.ORIGIN) {
+                            setOrigin(point, null);
+                            if (editingExistingPoint) {
+                                finishPointEdit();
+                            } else {
+                                showPointSourceDialog(
+                                        SelectionStage.TARGET);
+                            }
+                        } else {
+                            setTarget(point, null);
+                            if (editingExistingPoint) {
+                                finishPointEdit();
+                            } else {
+                                finishSetup();
+                            }
+                        }
+                    });
+        });
 
         activeDialog = dialog;
         dialog.show();
     }
 
     private GeoPoint parseMgrsCoordinate(EditText mgrs) {
-        String value = mgrs.getText().toString().trim();
+        String value = normalizeMgrs(mgrs.getText().toString());
         if (value.isEmpty()) {
             Toast.makeText(
                     mapView.getContext(),
@@ -593,15 +1421,29 @@ public class JarnsenMrsSectorTool extends Tool
             if (!isUsable(point)) {
                 throw new IllegalArgumentException();
             }
+            mgrs.setText(value);
+            mgrs.setSelection(value.length());
             return point;
-        } catch (IllegalArgumentException ignored) {
+        } catch (Exception ignored) {
+            lastDiagnosticError = "Ungültige MGRS-Eingabe: " + value;
             Toast.makeText(
                     mapView.getContext(),
-                    "MGRS ungültig. Beispiel: 32U MV 12345 67890",
+                    "MGRS-Koordinate ist nicht gültig.",
                     Toast.LENGTH_SHORT
             ).show();
             return null;
         }
+    }
+
+    private static String normalizeMgrs(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        return value.toUpperCase(Locale.US)
+                .replaceAll("[^A-Z0-9 ]", " ")
+                .trim()
+                .replaceAll("\\s+", " ");
     }
 
     private void showCoordinateDialog(final SelectionStage stage) {
@@ -708,6 +1550,8 @@ public class JarnsenMrsSectorTool extends Tool
             }
             return new GeoPoint(lat, lon);
         } catch (NumberFormatException ignored) {
+            lastDiagnosticError =
+                    "Ungültige Breiten-/Längengrad-Eingabe";
             Toast.makeText(
                     mapView.getContext(),
                     "Bitte gültige Breiten- und Längengrade eingeben.",
@@ -731,11 +1575,17 @@ public class JarnsenMrsSectorTool extends Tool
         if (stage == SelectionStage.TARGET) {
             dispatcher.clearListeners(MapEvent.ITEM_PRESS);
             dispatcher.clearListeners(MapEvent.ITEM_RELEASE);
+            dispatcher.clearListeners(MapEvent.ITEM_DRAG_STARTED);
+            dispatcher.clearListeners(MapEvent.ITEM_DRAG_CONTINUED);
+            dispatcher.clearListeners(MapEvent.ITEM_DRAG_DROPPED);
             dispatcher.clearListeners(MapEvent.MAP_PRESS);
             dispatcher.clearListeners(MapEvent.MAP_DRAW);
             dispatcher.clearListeners(MapEvent.MAP_RELEASE);
             dispatcher.addMapEventListener(MapEvent.ITEM_PRESS, this);
             dispatcher.addMapEventListener(MapEvent.ITEM_RELEASE, this);
+            dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_STARTED, this);
+            dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_CONTINUED, this);
+            dispatcher.addMapEventListener(MapEvent.ITEM_DRAG_DROPPED, this);
             dispatcher.addMapEventListener(MapEvent.MAP_PRESS, this);
             dispatcher.addMapEventListener(MapEvent.MAP_DRAW, this);
             dispatcher.addMapEventListener(MapEvent.MAP_RELEASE, this);
@@ -772,6 +1622,9 @@ public class JarnsenMrsSectorTool extends Tool
     private static boolean isTargetDragEvent(String eventType) {
         return MapEvent.ITEM_PRESS.equals(eventType)
                 || MapEvent.ITEM_RELEASE.equals(eventType)
+                || MapEvent.ITEM_DRAG_STARTED.equals(eventType)
+                || MapEvent.ITEM_DRAG_CONTINUED.equals(eventType)
+                || MapEvent.ITEM_DRAG_DROPPED.equals(eventType)
                 || MapEvent.MAP_PRESS.equals(eventType)
                 || MapEvent.MAP_DRAW.equals(eventType)
                 || MapEvent.MAP_RELEASE.equals(eventType);
@@ -785,6 +1638,7 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void finishPointEdit() {
         editingExistingPoint = false;
+        commitEditorToWorkspace();
         redraw();
         showExistingDrawingDialog();
     }
@@ -801,7 +1655,17 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void closeTool() {
         stopMapSelection();
+        removeEditHandles();
         editingExistingPoint = false;
+        creatingNewDrawing = false;
+        activeDrawingId = null;
+        detachEndpointListeners();
+        originPoint = null;
+        targetPoint = null;
+        drawingLabel = null;
+        originIsSelfSelection = false;
+        targetIsSelfSelection = false;
+        redraw();
         ToolManagerBroadcastReceiver.getInstance().endCurrentTool();
     }
 
@@ -841,6 +1705,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (continueToColor) {
                         showColorSelectionDialog(true);
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -850,6 +1715,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (continueToColor) {
                         showColorSelectionDialog(true);
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -859,6 +1725,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (continueToColor) {
                         showColorSelectionDialog(true);
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -907,8 +1774,11 @@ public class JarnsenMrsSectorTool extends Tool
                     activeDialog = null;
                     applySectorColor(SECTOR_COLORS[which]);
                     if (closeWhenDone) {
+                        pushUndoState();
+                        commitEditorToWorkspace();
                         closeTool();
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -917,16 +1787,22 @@ public class JarnsenMrsSectorTool extends Tool
                     sectorFillColor = COLOR_FILL;
                     redraw();
                     if (closeWhenDone) {
+                        pushUndoState();
+                        commitEditorToWorkspace();
                         closeTool();
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
                 .setOnCancelListener(ignored -> {
                     activeDialog = null;
                     if (closeWhenDone) {
+                        pushUndoState();
+                        commitEditorToWorkspace();
                         closeTool();
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -962,18 +1838,30 @@ public class JarnsenMrsSectorTool extends Tool
         return Double.isNaN(distance) || distance >= 1.0;
     }
 
+    private boolean isDifferentFromTarget(GeoPoint candidate) {
+        if (targetPoint == null || !isUsable(targetPoint.get())) {
+            return true;
+        }
+        double distance = targetPoint.get().distanceTo(candidate);
+        return Double.isNaN(distance) || distance >= 1.0;
+    }
+
     private void resetEndpoints() {
         detachEndpointListeners();
         originPoint = null;
         targetPoint = null;
+        originIsSelfSelection = false;
+        targetIsSelfSelection = false;
         editingExistingPoint = false;
         lastVisualResolution = Double.NaN;
-        clearOverlayItems();
+        removeEditHandles();
+        redraw();
     }
 
     private void setOrigin(GeoPointMetaData point, MapItem item) {
         detachOriginListener();
         originPoint = point;
+        originIsSelfSelection = item != null && item == selfMarker;
 
         if (item instanceof PointMapItem) {
             originItem = (PointMapItem) item;
@@ -988,6 +1876,7 @@ public class JarnsenMrsSectorTool extends Tool
         detachTargetListener();
 
         targetPoint = point;
+        targetIsSelfSelection = item != null && item == selfMarker;
 
         if (item instanceof PointMapItem) {
             targetItem = (PointMapItem) item;
@@ -1027,14 +1916,74 @@ public class JarnsenMrsSectorTool extends Tool
         clearOverlayItems();
         attachSelfListener();
 
-        if (originPoint == null || targetPoint == null) {
-            return;
+        for (MrsDrawing d : drawings.values()) {
+            if (activeDrawingId != null
+                    && activeDrawingId.equals(d.id)
+                    && originPoint != null
+                    && targetPoint != null) {
+                continue;
+            }
+            renderStoredDrawing(d);
         }
 
-        GeoPoint own = originPoint.get();
-        GeoPoint target = targetPoint.get();
+        if (originPoint != null
+                && targetPoint != null
+                && isUsable(originPoint.get())
+                && isUsable(targetPoint.get())) {
 
-        if (!isUsable(own) || !isUsable(target)) {
+            MrsDrawing editor;
+            if (activeDrawingId != null
+                    && drawings.containsKey(activeDrawingId)) {
+                editor = drawings.get(activeDrawingId).copy();
+            } else {
+                editor = new MrsDrawing("__draft__");
+            }
+
+            GeoPoint origin = originPoint.get();
+            GeoPoint target = targetPoint.get();
+            editor.label = getDrawingLabel();
+            editor.originLat = origin.getLatitude();
+            editor.originLon = origin.getLongitude();
+            editor.targetLat = target.getLatitude();
+            editor.targetLon = target.getLongitude();
+            editor.originSelf = originIsSelfSelection;
+            editor.targetSelf = targetIsSelfSelection;
+            editor.fillColor = sectorFillColor;
+            editor.fillAlpha = Color.alpha(sectorFillColor);
+
+            renderGeometry(editor, origin, target);
+        }
+    }
+
+    private void renderStoredDrawing(MrsDrawing d) {
+        GeoPoint origin;
+        GeoPoint target;
+
+        if (d.originSelf
+                && selfMarker != null
+                && isUsable(selfMarker.getPoint())) {
+            origin = selfMarker.getPoint();
+        } else {
+            origin = d.originPoint().get();
+        }
+
+        if (d.targetSelf
+                && selfMarker != null
+                && isUsable(selfMarker.getPoint())) {
+            target = selfMarker.getPoint();
+        } else {
+            target = d.targetPoint().get();
+        }
+
+        renderGeometry(d, origin, target);
+    }
+
+    private void renderGeometry(
+            MrsDrawing d,
+            GeoPoint own,
+            GeoPoint target) {
+
+        if (d == null || !isUsable(own) || !isUsable(target)) {
             return;
         }
 
@@ -1042,6 +1991,9 @@ public class JarnsenMrsSectorTool extends Tool
         if (Double.isNaN(targetDistance) || targetDistance < 1.0) {
             return;
         }
+
+        renderDrawing = d;
+        renderDrawingId = d.id;
 
         double trueBearing = normalizeDegrees(own.bearingTo(target));
         double gridBearing = toGridBearing(own, target, trueBearing);
@@ -1055,43 +2007,69 @@ public class JarnsenMrsSectorTool extends Tool
                 260.0
         );
 
-        addSectorFill(own, trueBearing);
+        if (d.showFill) {
+            addSectorFill(own, trueBearing);
+        }
         addSectorBoundary(own, trueBearing - HALF_SECTOR_DEG);
         addSectorBoundary(own, trueBearing + HALF_SECTOR_DEG);
 
+        int ringIndex = 0;
         for (double range = RANGE_STEP_M;
              range <= MAX_RANGE_M + 0.1;
              range += RANGE_STEP_M) {
+
             boolean fullKm = (((int) Math.round(range)) % 1000) == 0;
-            addRangeArc(own, trueBearing, range, fullKm);
-            addRangeTick(own, trueBearing, range, fullKm);
-            addRangeLabel(own, trueBearing, range);
+            boolean visible = fullKm ? d.showKm : d.showHalfKm;
+            if (visible) {
+                addRangeArc(own, trueBearing, range, fullKm);
+                addRangeTick(own, trueBearing, range, fullKm);
+                if (d.showRangeLabels) {
+                    addRangeLabelSmart(
+                            own,
+                            trueBearing,
+                            range,
+                            ringIndex
+                    );
+                }
+            }
+            ringIndex++;
         }
 
         addCenterLine(own, target);
+        addInteractionHitBox(own, target);
         addArrowHead(target, trueBearing);
-        addTargetMarker(target, trueBearing);
 
-        addCenterBracket(own, trueBearing, bracketAnchor);
-        addBracketLabel(
-                own,
-                trueBearing,
-                bracketAnchor,
-                bracketLabelOffset,
-                String.format(
-                        Locale.GERMANY,
-                        "%s  GR %04d mils",
-                        getDrawingLabel(),
-                        gridMil
-                )
-        );
-        addBracketLabel(
-                own,
-                trueBearing,
-                bracketAnchor,
-                -bracketLabelOffset,
-                formatTargetDistance(targetDistance)
-        );
+        if (d.showTargetMarker) {
+            addTargetMarker(target, trueBearing);
+        }
+
+        if (d.showBracket) {
+            addCenterBracket(own, trueBearing, bracketAnchor);
+            addBracketLabel(
+                    own,
+                    trueBearing,
+                    bracketAnchor,
+                    bracketLabelOffset,
+                    String.format(
+                            Locale.GERMANY,
+                            "%s  GR %04d mils",
+                            d.label == null || d.label.trim().isEmpty()
+                                    ? "Mrs"
+                                    : d.label.trim(),
+                            gridMil
+                    )
+            );
+            addBracketLabel(
+                    own,
+                    trueBearing,
+                    bracketAnchor,
+                    -bracketLabelOffset,
+                    formatTargetDistance(targetDistance)
+            );
+        }
+
+        renderDrawing = null;
+        renderDrawingId = null;
     }
 
     private void addSectorFill(GeoPoint own, double bearing) {
@@ -1120,7 +2098,11 @@ public class JarnsenMrsSectorTool extends Tool
                         | Shape.STYLE_STROKE_MASK
                         | Shape.STYLE_FILLED_MASK
         );
-        sector.setFillColor(sectorFillColor);
+        sector.setFillColor(
+                renderDrawing == null
+                        ? sectorFillColor
+                        : renderDrawing.fillColor
+        );
         addLocalItem(sector);
     }
 
@@ -1172,7 +2154,10 @@ public class JarnsenMrsSectorTool extends Tool
             double range,
             boolean fullKm) {
 
-        double halfWidth = fullKm ? 55.0 : 38.0;
+        double resolution = getVisualResolution();
+        double halfWidth = fullKm
+                ? clamp(resolution * 10.0, 28.0, 150.0)
+                : clamp(resolution * 7.0, 20.0, 110.0);
 
         List<GeoPoint> pts = new ArrayList<>();
         pts.add(pointFromAxis(own, bearing, range, halfWidth));
@@ -1217,6 +2202,40 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(labelLine);
     }
 
+    private void addRangeLabelSmart(
+            GeoPoint own,
+            double bearing,
+            double range,
+            int ringIndex) {
+
+        double resolution = getVisualResolution();
+        double cross = (ringIndex % 2 == 0 ? 1.0 : -1.0)
+                * clamp(resolution * 9.0, 0.0, 85.0);
+        double start = Math.max(
+                40.0,
+                range - clamp(resolution * 125.0, 150.0, 320.0)
+        );
+        double end = Math.max(
+                80.0,
+                range - clamp(resolution * 24.0, 35.0, 90.0)
+        );
+
+        List<GeoPoint> pts = new ArrayList<>();
+        pts.add(pointFromAxis(own, bearing, start, cross));
+        pts.add(pointFromAxis(own, bearing, end, cross));
+
+        Polyline labelLine = makePolyline(
+                pts,
+                Color.argb(1, 255, 255, 255),
+                0.1,
+                Shape.BASIC_LINE_STYLE_SOLID
+        );
+        labelLine.toggleMetaData("labels_on", true);
+        labelLine.setLineLabel(formatRange(range));
+        labelLine.setLabelTextSize(14);
+        addLocalItem(labelLine);
+    }
+
     private void addCenterLine(GeoPoint own, GeoPoint target) {
         List<GeoPoint> pts = new ArrayList<>();
         pts.add(own);
@@ -1230,8 +2249,31 @@ public class JarnsenMrsSectorTool extends Tool
         ));
     }
 
+    private void addInteractionHitBox(GeoPoint own, GeoPoint target) {
+        List<GeoPoint> pts = new ArrayList<>();
+        pts.add(own);
+        pts.add(target);
+
+        Polyline hitBox = makePolyline(
+                pts,
+                Color.argb(2, 255, 255, 255),
+                14.0,
+                Shape.BASIC_LINE_STYLE_SOLID
+        );
+        hitBox.setMetaBoolean(META_MRS_OVERLAY, true);
+        addLocalItem(hitBox);
+    }
+
+    private double getArrowLegMeters() {
+        return clamp(
+                getVisualResolution() * 32.0,
+                45.0,
+                360.0
+        );
+    }
+
     private void addArrowHead(GeoPoint target, double bearing) {
-        double leg = 110.0;
+        double leg = getArrowLegMeters();
         double back = normalizeDegrees(bearing + 180.0);
 
         List<GeoPoint> left = new ArrayList<>();
@@ -1265,7 +2307,11 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void addTargetMarker(GeoPoint target, double bearing) {
-        double d = 45.0;
+        double d = clamp(
+                getVisualResolution() * 12.0,
+                18.0,
+                140.0
+        );
 
         List<GeoPoint> cross1 = new ArrayList<>();
         cross1.add(pointFromAxis(target, bearing, -d, 0));
@@ -1298,26 +2344,26 @@ public class JarnsenMrsSectorTool extends Tool
             GeoPoint own,
             double bearing,
             double anchor) {
-        double resolution = getVisualResolution();
-
-        // Keep the bracket approximately the same visual size while zooming.
-        // The geometry remains in meters, derived from ATAK's meters/pixel.
+        // Tie the bracket directly to the visible arrow size. The arrow size
+        // itself follows ATAK's current meters-per-pixel resolution, so both
+        // elements grow/shrink together while zooming.
+        double arrowLeg = getArrowLegMeters();
         double maxHalfWidth = Math.max(
-                35.0,
-                Math.min(650.0, anchor * 0.55)
+                20.0,
+                Math.min(650.0, anchor * 0.45)
         );
         double halfWidth = Math.min(
-                Math.max(resolution * 58.0, 35.0),
+                clamp(arrowLeg * 1.40, 28.0, 650.0),
                 maxHalfWidth
         );
         double centerOffset = clamp(
-                resolution * 14.0,
-                12.0,
+                arrowLeg * 0.38,
+                10.0,
                 180.0
         );
         double endOffset = clamp(
-                resolution * 42.0,
-                32.0,
+                arrowLeg * 1.05,
+                28.0,
                 420.0
         );
 
@@ -1424,21 +2470,26 @@ public class JarnsenMrsSectorTool extends Tool
     private void addLocalItem(MapItem item) {
         item.setMetaBoolean("nevercot", true);
         item.setMetaBoolean("addToObjList", false);
+        item.setMetaBoolean(META_MRS_OVERLAY, true);
+        if (renderDrawingId != null) {
+            item.setMetaString(META_MRS_DRAWING_ID, renderDrawingId);
+        }
         item.setClickable(true);
         item.setEditable(false);
         item.setMovable(false);
         overlayGroup.addItem(item);
         overlayItems.add(item);
-        mapView.getMapEventDispatcher().addMapItemEventListener(item, this);
     }
 
     private void clearOverlayItems() {
         MapEventDispatcher dispatcher = mapView.getMapEventDispatcher();
-        for (MapItem item : overlayItems) {
+        for (MapItem item : new ArrayList<>(overlayItems)) {
             dispatcher.removeMapItemEventListener(item, this);
+            if (item.getGroup() != null) {
+                item.removeFromGroup();
+            }
         }
         overlayItems.clear();
-        overlayGroup.clearItems();
     }
 
     private static GeoPointMetaData[] wrap(List<GeoPoint> points) {
