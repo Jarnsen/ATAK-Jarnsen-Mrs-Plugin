@@ -353,7 +353,8 @@ public class JarnsenMrsSectorTool extends Tool
 
     @Override
     public void onMapMoved(AtakMapView view, boolean animate) {
-        if (originPoint == null || targetPoint == null) {
+        if (drawings.isEmpty()
+                && (originPoint == null || targetPoint == null)) {
             return;
         }
 
@@ -1826,14 +1827,74 @@ public class JarnsenMrsSectorTool extends Tool
         clearOverlayItems();
         attachSelfListener();
 
-        if (originPoint == null || targetPoint == null) {
-            return;
+        for (MrsDrawing d : drawings.values()) {
+            if (activeDrawingId != null
+                    && activeDrawingId.equals(d.id)
+                    && originPoint != null
+                    && targetPoint != null) {
+                continue;
+            }
+            renderStoredDrawing(d);
         }
 
-        GeoPoint own = originPoint.get();
-        GeoPoint target = targetPoint.get();
+        if (originPoint != null
+                && targetPoint != null
+                && isUsable(originPoint.get())
+                && isUsable(targetPoint.get())) {
 
-        if (!isUsable(own) || !isUsable(target)) {
+            MrsDrawing editor;
+            if (activeDrawingId != null
+                    && drawings.containsKey(activeDrawingId)) {
+                editor = drawings.get(activeDrawingId).copy();
+            } else {
+                editor = new MrsDrawing("__draft__");
+            }
+
+            GeoPoint origin = originPoint.get();
+            GeoPoint target = targetPoint.get();
+            editor.label = getDrawingLabel();
+            editor.originLat = origin.getLatitude();
+            editor.originLon = origin.getLongitude();
+            editor.targetLat = target.getLatitude();
+            editor.targetLon = target.getLongitude();
+            editor.originSelf = originIsSelfSelection;
+            editor.targetSelf = targetIsSelfSelection;
+            editor.fillColor = sectorFillColor;
+            editor.fillAlpha = Color.alpha(sectorFillColor);
+
+            renderGeometry(editor, origin, target);
+        }
+    }
+
+    private void renderStoredDrawing(MrsDrawing d) {
+        GeoPoint origin;
+        GeoPoint target;
+
+        if (d.originSelf
+                && selfMarker != null
+                && isUsable(selfMarker.getPoint())) {
+            origin = selfMarker.getPoint();
+        } else {
+            origin = d.originPoint().get();
+        }
+
+        if (d.targetSelf
+                && selfMarker != null
+                && isUsable(selfMarker.getPoint())) {
+            target = selfMarker.getPoint();
+        } else {
+            target = d.targetPoint().get();
+        }
+
+        renderGeometry(d, origin, target);
+    }
+
+    private void renderGeometry(
+            MrsDrawing d,
+            GeoPoint own,
+            GeoPoint target) {
+
+        if (d == null || !isUsable(own) || !isUsable(target)) {
             return;
         }
 
@@ -1841,6 +1902,9 @@ public class JarnsenMrsSectorTool extends Tool
         if (Double.isNaN(targetDistance) || targetDistance < 1.0) {
             return;
         }
+
+        renderDrawing = d;
+        renderDrawingId = d.id;
 
         double trueBearing = normalizeDegrees(own.bearingTo(target));
         double gridBearing = toGridBearing(own, target, trueBearing);
@@ -1854,44 +1918,69 @@ public class JarnsenMrsSectorTool extends Tool
                 260.0
         );
 
-        addSectorFill(own, trueBearing);
+        if (d.showFill) {
+            addSectorFill(own, trueBearing);
+        }
         addSectorBoundary(own, trueBearing - HALF_SECTOR_DEG);
         addSectorBoundary(own, trueBearing + HALF_SECTOR_DEG);
 
+        int ringIndex = 0;
         for (double range = RANGE_STEP_M;
              range <= MAX_RANGE_M + 0.1;
              range += RANGE_STEP_M) {
+
             boolean fullKm = (((int) Math.round(range)) % 1000) == 0;
-            addRangeArc(own, trueBearing, range, fullKm);
-            addRangeTick(own, trueBearing, range, fullKm);
-            addRangeLabel(own, trueBearing, range);
+            boolean visible = fullKm ? d.showKm : d.showHalfKm;
+            if (visible) {
+                addRangeArc(own, trueBearing, range, fullKm);
+                addRangeTick(own, trueBearing, range, fullKm);
+                if (d.showRangeLabels) {
+                    addRangeLabelSmart(
+                            own,
+                            trueBearing,
+                            range,
+                            ringIndex
+                    );
+                }
+            }
+            ringIndex++;
         }
 
         addCenterLine(own, target);
         addInteractionHitBox(own, target);
         addArrowHead(target, trueBearing);
-        addTargetMarker(target, trueBearing);
 
-        addCenterBracket(own, trueBearing, bracketAnchor);
-        addBracketLabel(
-                own,
-                trueBearing,
-                bracketAnchor,
-                bracketLabelOffset,
-                String.format(
-                        Locale.GERMANY,
-                        "%s  GR %04d mils",
-                        getDrawingLabel(),
-                        gridMil
-                )
-        );
-        addBracketLabel(
-                own,
-                trueBearing,
-                bracketAnchor,
-                -bracketLabelOffset,
-                formatTargetDistance(targetDistance)
-        );
+        if (d.showTargetMarker) {
+            addTargetMarker(target, trueBearing);
+        }
+
+        if (d.showBracket) {
+            addCenterBracket(own, trueBearing, bracketAnchor);
+            addBracketLabel(
+                    own,
+                    trueBearing,
+                    bracketAnchor,
+                    bracketLabelOffset,
+                    String.format(
+                            Locale.GERMANY,
+                            "%s  GR %04d mils",
+                            d.label == null || d.label.trim().isEmpty()
+                                    ? "Mrs"
+                                    : d.label.trim(),
+                            gridMil
+                    )
+            );
+            addBracketLabel(
+                    own,
+                    trueBearing,
+                    bracketAnchor,
+                    -bracketLabelOffset,
+                    formatTargetDistance(targetDistance)
+            );
+        }
+
+        renderDrawing = null;
+        renderDrawingId = null;
     }
 
     private void addSectorFill(GeoPoint own, double bearing) {
@@ -1920,7 +2009,11 @@ public class JarnsenMrsSectorTool extends Tool
                         | Shape.STYLE_STROKE_MASK
                         | Shape.STYLE_FILLED_MASK
         );
-        sector.setFillColor(sectorFillColor);
+        sector.setFillColor(
+                renderDrawing == null
+                        ? sectorFillColor
+                        : renderDrawing.fillColor
+        );
         addLocalItem(sector);
     }
 
@@ -2014,6 +2107,40 @@ public class JarnsenMrsSectorTool extends Tool
         labelLine.setLineLabel(formatRange(range));
         labelLine.setLabelTextSize(14);
 
+        addLocalItem(labelLine);
+    }
+
+    private void addRangeLabelSmart(
+            GeoPoint own,
+            double bearing,
+            double range,
+            int ringIndex) {
+
+        double resolution = getVisualResolution();
+        double cross = (ringIndex % 2 == 0 ? 1.0 : -1.0)
+                * clamp(resolution * 9.0, 0.0, 85.0);
+        double start = Math.max(
+                40.0,
+                range - clamp(resolution * 125.0, 150.0, 320.0)
+        );
+        double end = Math.max(
+                80.0,
+                range - clamp(resolution * 24.0, 35.0, 90.0)
+        );
+
+        List<GeoPoint> pts = new ArrayList<>();
+        pts.add(pointFromAxis(own, bearing, start, cross));
+        pts.add(pointFromAxis(own, bearing, end, cross));
+
+        Polyline labelLine = makePolyline(
+                pts,
+                Color.argb(1, 255, 255, 255),
+                0.1,
+                Shape.BASIC_LINE_STYLE_SOLID
+        );
+        labelLine.toggleMetaData("labels_on", true);
+        labelLine.setLineLabel(formatRange(range));
+        labelLine.setLabelTextSize(14);
         addLocalItem(labelLine);
     }
 
@@ -2252,6 +2379,9 @@ public class JarnsenMrsSectorTool extends Tool
         item.setMetaBoolean("nevercot", true);
         item.setMetaBoolean("addToObjList", false);
         item.setMetaBoolean(META_MRS_OVERLAY, true);
+        if (renderDrawingId != null) {
+            item.setMetaString(META_MRS_DRAWING_ID, renderDrawingId);
+        }
         item.setClickable(true);
         item.setEditable(false);
         item.setMovable(false);
