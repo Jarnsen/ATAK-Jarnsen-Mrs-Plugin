@@ -133,6 +133,7 @@ public class JarnsenMrsSectorTool extends Tool
     private boolean handleDragMode;
     private Marker originHandle;
     private Marker targetHandle;
+    private String lastDiagnosticError = "—";
 
     private Marker selfMarker;
     private PointMapItem originItem;
@@ -717,10 +718,26 @@ public class JarnsenMrsSectorTool extends Tool
         } catch (Exception ignored) {
         }
 
+        String signatureStatus = "nicht ermittelt";
+        try {
+            android.content.pm.PackageInfo info = mapView.getContext()
+                    .getPackageManager()
+                    .getPackageInfo(
+                            mapView.getContext().getPackageName(),
+                            android.content.pm.PackageManager.GET_SIGNATURES
+                    );
+            int count = info.signatures == null ? 0 : info.signatures.length;
+            signatureStatus = count > 0
+                    ? "vorhanden (" + count + ")"
+                    : "keine Signatur";
+        } catch (Exception ignored) {
+        }
+
         String message =
                 "Plugin: " + BuildConfig.VERSION_NAME
                         + "\nATAK installiert: " + atakVersion
                         + "\nATAK Ziel-API: 5.6.0 CIV"
+                        + "\nAPK-Signatur: " + signatureStatus
                         + "\nZeichnungen: " + drawings.size()
                         + "\nUndo/Redo: " + undoStates.size()
                         + "/" + redoStates.size()
@@ -728,7 +745,8 @@ public class JarnsenMrsSectorTool extends Tool
                         + "\nLetzte MGRS: "
                         + (drawingStore.getLastMgrs().isEmpty()
                         ? "—"
-                        : drawingStore.getLastMgrs());
+                        : drawingStore.getLastMgrs())
+                        + "\nLetzter Fehler: " + lastDiagnosticError;
 
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle("Jarnsen Mrs Diagnose")
@@ -1396,6 +1414,7 @@ public class JarnsenMrsSectorTool extends Tool
             mgrs.setSelection(value.length());
             return point;
         } catch (Exception ignored) {
+            lastDiagnosticError = "Ungültige MGRS-Eingabe: " + value;
             Toast.makeText(
                     mapView.getContext(),
                     "MGRS-Koordinate ist nicht gültig.",
@@ -1521,6 +1540,8 @@ public class JarnsenMrsSectorTool extends Tool
             }
             return new GeoPoint(lat, lon);
         } catch (NumberFormatException ignored) {
+            lastDiagnosticError =
+                    "Ungültige Breiten-/Längengrad-Eingabe";
             Toast.makeText(
                     mapView.getContext(),
                     "Bitte gültige Breiten- und Längengrade eingeben.",
