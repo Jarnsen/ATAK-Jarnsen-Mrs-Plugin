@@ -35,6 +35,29 @@ zur Verfügung.
 
 ## Realistische Einsatzbeispiele
 
+> Die folgenden Bilder sind realistische **Beispielansichten / Mock-ups** mit
+> fiktiven Kartendaten. Sie zeigen den vorgesehenen Funktionsablauf und sind
+> keine unveränderten Bildschirmfotos aus einem realen Einsatz.
+
+### Sektoransicht
+
+![Beispielansicht eines MRS-Sektors mit Mittellinie, Entfernungsbögen und Zielkreuz](docs/mrs-sector-overview-mockup.jpg)
+
+*Beispielansicht: Ein Sektor mit Grundrichtung, 500-m-Bögen und Zielpunkt.*
+
+### Mehrere Zeichnungen verwalten
+
+![Beispielansicht der Mehrzeichnungs-Verwaltung mit farbigen Sektoren](docs/mrs-multiple-drawings-mockup.jpg)
+
+*Beispielansicht: Drei vorbereitete Zeichnungen mit Farbe, Sichtbarkeit und Direktaktionen.*
+
+### MGRS-Eingabe und Punktbearbeitung
+
+![Beispielansicht der MGRS-Eingabe und der Start-Ziel-Bearbeitung](docs/mrs-mgrs-editing-mockup.jpg)
+
+*Beispielansicht: MGRS-Vorschau, Übernahme und direkte Start-/Zielgriffe.*
+
+
 ### Beispiel 1 – Fester Startpunkt und Ziel auf der Karte
 
 1. **Neue Zeichnung** öffnen und beispielsweise **MRS 01** nennen.
