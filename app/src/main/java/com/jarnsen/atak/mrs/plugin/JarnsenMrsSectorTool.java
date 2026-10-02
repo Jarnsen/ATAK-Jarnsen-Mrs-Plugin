@@ -1430,8 +1430,7 @@ public class JarnsenMrsSectorTool extends Tool
         }
 
         return value.toUpperCase(Locale.US)
-                .replace(',', ' ')
-                .replace(';', ' ')
+                .replaceAll("[^A-Z0-9 ]", " ")
                 .trim()
                 .replaceAll("\\s+", " ");
     }
