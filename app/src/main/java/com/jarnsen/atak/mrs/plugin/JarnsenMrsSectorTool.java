@@ -1,6 +1,7 @@
 package com.jarnsen.atak.mrs.plugin;
 
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -14,8 +15,12 @@ import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.atakmap.android.maps.MapEvent;
@@ -31,19 +36,27 @@ import com.atakmap.android.toolbar.Tool;
 import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
 import com.atakmap.android.toolbar.widgets.TextContainer;
 import com.atakmap.android.util.ATAKUtilities;
+import com.atakmap.android.util.DragMarkerHelper;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
+import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.maps.assets.Icon;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.map.AtakMapView;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.util.ArrayDeque;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -67,7 +80,7 @@ public class JarnsenMrsSectorTool extends Tool
     public static final String TOOL_IDENTIFIER =
             "com.jarnsen.atak.mrs.tool.SECTOR";
 
-    private static final double MAX_RANGE_M = 8000.0;
+    private static final double MAX_RANGE_M = MrsCoreLogic.MAX_RANGE_M;
     private static final double RANGE_STEP_M = 500.0;
     private static final String PREF_NEXT_MRS_NUMBER =
             "jarnsen.mrs.next_number";
@@ -77,12 +90,17 @@ public class JarnsenMrsSectorTool extends Tool
             "jarnsen.mrs.drawing_id";
     private static final String META_MRS_HANDLE =
             "jarnsen.mrs.handle";
-    private static final int MAX_UNDO_STATES = 20;
+    private static final int MAX_UNDO_STATES = 10;
+    private static final long UPDATE_CHECK_INTERVAL_MS =
+            24L * 60L * 60L * 1000L;
+    private static final String PREF_UPDATE_CHECK_AT =
+            "jarnsen.mrs.update.last_check";
 
-    // 600 NATO mil = 33.75 degrees.
-    private static final double HALF_SECTOR_MIL = 600.0;
+    // Fixed 8 km / ±600 NATO mil geometry.
+    private static final double HALF_SECTOR_MIL =
+            MrsCoreLogic.HALF_SECTOR_MIL;
     private static final double HALF_SECTOR_DEG =
-            HALF_SECTOR_MIL * 360.0 / 6400.0;
+            MrsCoreLogic.HALF_SECTOR_DEG;
 
     private static final int COLOR_PRIMARY = Color.rgb(102, 245, 255);
     private static final int COLOR_PRIMARY_SOFT =
@@ -117,8 +135,15 @@ public class JarnsenMrsSectorTool extends Tool
     private final MrsDrawingStore drawingStore;
     private final LinkedHashMap<String, MrsDrawing> drawings =
             new LinkedHashMap<>();
-    private final ArrayDeque<String> undoStates = new ArrayDeque<>();
-    private final ArrayDeque<String> redoStates = new ArrayDeque<>();
+    private final MrsHistory history = new MrsHistory(MAX_UNDO_STATES);
+    private final LinkedHashMap<String, StaticGeometry> geometryCache =
+            new LinkedHashMap<String, StaticGeometry>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        Map.Entry<String, StaticGeometry> eldest) {
+                    return size() > 32;
+                }
+            };
 
     private boolean selectionActive;
     private boolean targetDragMoved;
@@ -138,6 +163,10 @@ public class JarnsenMrsSectorTool extends Tool
     private Marker originHandle;
     private Marker targetHandle;
     private String lastDiagnosticError = "—";
+    private String highlightedDrawingId;
+    private boolean renderHighlighted;
+    private long geometryCacheHits;
+    private long geometryCacheMisses;
 
     private Marker selfMarker;
     private PointMapItem originItem;
@@ -168,6 +197,7 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
+        highlightDrawing(drawingId);
         mapView.post(() -> {
             if (!selectionActive && activeDialog == null) {
                 loadDrawingForEdit(drawingId);
@@ -194,6 +224,10 @@ public class JarnsenMrsSectorTool extends Tool
         for (MrsDrawing drawing : drawingStore.load()) {
             drawings.put(drawing.id, drawing);
         }
+        history.restore(
+                drawingStore.loadUndoHistory(),
+                drawingStore.loadRedoHistory()
+        );
 
         ToolManagerBroadcastReceiver.getInstance().registerTool(
                 TOOL_IDENTIFIER,
@@ -212,6 +246,7 @@ public class JarnsenMrsSectorTool extends Tool
     @Override
     public boolean onToolBegin(Bundle extras) {
         attachSelfListener();
+        maybeCheckForUpdate(false);
         if (activeDrawingId != null
                 && originPoint != null
                 && targetPoint != null) {
@@ -1962,6 +1997,11 @@ public class JarnsenMrsSectorTool extends Tool
         attachSelfListener();
 
         for (MrsDrawing d : drawings.values()) {
+            if (!d.visible
+                    && (activeDrawingId == null
+                    || !activeDrawingId.equals(d.id))) {
+                continue;
+            }
             if (activeDrawingId != null
                     && activeDrawingId.equals(d.id)
                     && originPoint != null
