@@ -7,7 +7,9 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
@@ -1210,6 +1212,44 @@ public class JarnsenMrsSectorTool extends Tool
                 InputType.TYPE_CLASS_TEXT
                         | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
         );
+        mgrs.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(
+                    CharSequence s,
+                    int start,
+                    int count,
+                    int after) {
+            }
+
+            @Override
+            public void onTextChanged(
+                    CharSequence s,
+                    int start,
+                    int before,
+                    int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable editable) {
+                String value = normalizeMgrs(editable.toString());
+                if (value.length() < 5) {
+                    mgrs.setError(null);
+                    return;
+                }
+
+                try {
+                    GeoPoint point = CoordinateFormatUtilities.convert(
+                            value,
+                            CoordinateFormat.MGRS
+                    );
+                    mgrs.setError(isUsable(point)
+                            ? null
+                            : "MGRS ungültig");
+                } catch (Exception ignored) {
+                    mgrs.setError("MGRS noch unvollständig/ungültig");
+                }
+            }
+        });
 
         GeoPointMetaData current = stage == SelectionStage.ORIGIN
                 ? originPoint
