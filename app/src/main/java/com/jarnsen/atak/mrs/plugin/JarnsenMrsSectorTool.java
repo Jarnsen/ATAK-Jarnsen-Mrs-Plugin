@@ -1323,6 +1323,7 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void finishPointEdit() {
         editingExistingPoint = false;
+        commitEditorToWorkspace();
         redraw();
         showExistingDrawingDialog();
     }
@@ -1379,6 +1380,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (continueToColor) {
                         showColorSelectionDialog(true);
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -1388,6 +1390,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (continueToColor) {
                         showColorSelectionDialog(true);
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -1397,6 +1400,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (continueToColor) {
                         showColorSelectionDialog(true);
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -1445,8 +1449,11 @@ public class JarnsenMrsSectorTool extends Tool
                     activeDialog = null;
                     applySectorColor(SECTOR_COLORS[which]);
                     if (closeWhenDone) {
+                        pushUndoState();
+                        commitEditorToWorkspace();
                         closeTool();
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -1455,16 +1462,22 @@ public class JarnsenMrsSectorTool extends Tool
                     sectorFillColor = COLOR_FILL;
                     redraw();
                     if (closeWhenDone) {
+                        pushUndoState();
+                        commitEditorToWorkspace();
                         closeTool();
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
                 .setOnCancelListener(ignored -> {
                     activeDialog = null;
                     if (closeWhenDone) {
+                        pushUndoState();
+                        commitEditorToWorkspace();
                         closeTool();
                     } else {
+                        commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     }
                 })
@@ -1504,14 +1517,18 @@ public class JarnsenMrsSectorTool extends Tool
         detachEndpointListeners();
         originPoint = null;
         targetPoint = null;
+        originIsSelfSelection = false;
+        targetIsSelfSelection = false;
         editingExistingPoint = false;
         lastVisualResolution = Double.NaN;
-        clearOverlayItems();
+        removeEditHandles();
+        redraw();
     }
 
     private void setOrigin(GeoPointMetaData point, MapItem item) {
         detachOriginListener();
         originPoint = point;
+        originIsSelfSelection = item != null && item == selfMarker;
 
         if (item instanceof PointMapItem) {
             originItem = (PointMapItem) item;
@@ -1526,6 +1543,7 @@ public class JarnsenMrsSectorTool extends Tool
         detachTargetListener();
 
         targetPoint = point;
+        targetIsSelfSelection = item != null && item == selfMarker;
 
         if (item instanceof PointMapItem) {
             targetItem = (PointMapItem) item;
