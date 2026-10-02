@@ -5,8 +5,8 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.3.0** erweitert das Plugin zu einem persistenten Arbeitsbereich mit
-mehreren Mrs-Zeichnungen. Zeichnungen bleiben nach einem ATAK-Neustart erhalten,
+Version **0.4.0** baut den persistenten Arbeitsbereich aus 0.3.0 zu einer
+komfortableren und robusteren Mehrzeichnungs-Verwaltung aus. Zeichnungen bleiben nach einem ATAK-Neustart erhalten,
 können direkt auf der Karte geöffnet, dupliziert, bearbeitet und entfernt werden.
 Start und Ziel können per Karte, MGRS oder Breite/Länge gesetzt werden. Für
 bestehende Zeichnungen stehen direkte Drag-Griffe sowie Rückgängig/Wiederholen
@@ -126,6 +126,31 @@ Compile-Stub verwendet. Die vom Plugin verwendeten ATAK-APIs wurden zusätzlich
 gegen den offiziellen 5.6.0-Quellstand geprüft. Zur Laufzeit liefert ATAK 5.6.0
 die tatsächlichen Core-Klassen.
 
+
+## Version 0.4.0
+
+- neue Zeichnungsverwaltung mit Sichtbarkeit, Farbe und Direktaktionen je
+  Zeichnung
+- **Alle anzeigen / Alle ausblenden**
+- aktive Zeichnung wird beim Öffnen/Bearbeiten optisch hervorgehoben
+- größere, farbige Start-/Ziel-Drag-Griffe mit zusätzlicher Drag-Rückmeldung
+- kompakte MGRS-Eingaben wie `32UMV1234567890` werden automatisch
+  kanonisch formatiert
+- MGRS-Dialog zeigt die erkannte Koordinate bereits vor dem Übernehmen
+- JSON-Export und -Import unter `atak/tools/jarnsen-mrs`
+- automatische Sicherung des letzten gültigen Zeichnungsstands
+- Undo/Redo wird mit bis zu 10 Zuständen über ATAK-Neustarts erhalten
+- statische Sektor-Geometrie wird gecacht; Zoom-/UI-Neuzeichnungen müssen die
+  500-m-/1-km-Bögen nicht jedes Mal vollständig neu berechnen
+- Diagnose kann kopiert oder als Textdatei exportiert werden
+- Diagnose zeigt zusätzlich Cache-Statistik, Sichtbarkeitsstatus und das
+  tatsächliche Plugin-Zertifikat
+- optionale GitHub-Release-Prüfung; bei einem nicht öffentlich erreichbaren
+  Repository bleibt die automatische Prüfung still und die manuelle Prüfung
+  meldet den Grund
+- automatisierte JVM-Regressionstests für MGRS, feste ±600-Strich-/8-km-
+  Geometrie, Persistenz-Codec, Undo/Redo und Versionsvergleich
+- maximale Sektorreichtiefe bleibt **fest bei 8 km**
 
 ## Version 0.3.0
 

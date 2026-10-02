@@ -123,6 +123,12 @@ jobs:
           set -euxo pipefail
           gradle --no-daemon --stacktrace :app:assembleCivRelease
 
+      - name: Run JVM regression tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          gradle --no-daemon --stacktrace :app:testCivReleaseUnitTest
+
       - name: Lint ATAK plugin
         shell: bash
         run: |

@@ -1,6 +1,7 @@
 package com.jarnsen.atak.mrs.plugin;
 
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -14,8 +15,12 @@ import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.atakmap.android.maps.MapEvent;
@@ -31,19 +36,27 @@ import com.atakmap.android.toolbar.Tool;
 import com.atakmap.android.toolbar.ToolManagerBroadcastReceiver;
 import com.atakmap.android.toolbar.widgets.TextContainer;
 import com.atakmap.android.util.ATAKUtilities;
+import com.atakmap.android.util.DragMarkerHelper;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
+import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.maps.assets.Icon;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
 import com.atakmap.coremap.maps.coords.GeoPointMetaData;
 import com.atakmap.map.AtakMapView;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.util.ArrayDeque;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -67,7 +80,7 @@ public class JarnsenMrsSectorTool extends Tool
     public static final String TOOL_IDENTIFIER =
             "com.jarnsen.atak.mrs.tool.SECTOR";
 
-    private static final double MAX_RANGE_M = 8000.0;
+    private static final double MAX_RANGE_M = MrsCoreLogic.MAX_RANGE_M;
     private static final double RANGE_STEP_M = 500.0;
     private static final String PREF_NEXT_MRS_NUMBER =
             "jarnsen.mrs.next_number";
@@ -77,12 +90,17 @@ public class JarnsenMrsSectorTool extends Tool
             "jarnsen.mrs.drawing_id";
     private static final String META_MRS_HANDLE =
             "jarnsen.mrs.handle";
-    private static final int MAX_UNDO_STATES = 20;
+    private static final int MAX_UNDO_STATES = 10;
+    private static final long UPDATE_CHECK_INTERVAL_MS =
+            24L * 60L * 60L * 1000L;
+    private static final String PREF_UPDATE_CHECK_AT =
+            "jarnsen.mrs.update.last_check";
 
-    // 600 NATO mil = 33.75 degrees.
-    private static final double HALF_SECTOR_MIL = 600.0;
+    // Fixed 8 km / ±600 NATO mil geometry.
+    private static final double HALF_SECTOR_MIL =
+            MrsCoreLogic.HALF_SECTOR_MIL;
     private static final double HALF_SECTOR_DEG =
-            HALF_SECTOR_MIL * 360.0 / 6400.0;
+            MrsCoreLogic.HALF_SECTOR_DEG;
 
     private static final int COLOR_PRIMARY = Color.rgb(102, 245, 255);
     private static final int COLOR_PRIMARY_SOFT =
@@ -117,8 +135,15 @@ public class JarnsenMrsSectorTool extends Tool
     private final MrsDrawingStore drawingStore;
     private final LinkedHashMap<String, MrsDrawing> drawings =
             new LinkedHashMap<>();
-    private final ArrayDeque<String> undoStates = new ArrayDeque<>();
-    private final ArrayDeque<String> redoStates = new ArrayDeque<>();
+    private final MrsHistory history = new MrsHistory(MAX_UNDO_STATES);
+    private final LinkedHashMap<String, StaticGeometry> geometryCache =
+            new LinkedHashMap<String, StaticGeometry>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        Map.Entry<String, StaticGeometry> eldest) {
+                    return size() > 32;
+                }
+            };
 
     private boolean selectionActive;
     private boolean targetDragMoved;
@@ -138,6 +163,10 @@ public class JarnsenMrsSectorTool extends Tool
     private Marker originHandle;
     private Marker targetHandle;
     private String lastDiagnosticError = "—";
+    private String highlightedDrawingId;
+    private boolean renderHighlighted;
+    private long geometryCacheHits;
+    private long geometryCacheMisses;
 
     private Marker selfMarker;
     private PointMapItem originItem;
@@ -168,6 +197,7 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
+        highlightDrawing(drawingId);
         mapView.post(() -> {
             if (!selectionActive && activeDialog == null) {
                 loadDrawingForEdit(drawingId);
@@ -185,6 +215,80 @@ public class JarnsenMrsSectorTool extends Tool
         TARGET
     }
 
+    private static final class StaticGeometry {
+        final double originLat;
+        final double originLon;
+        final double bearing;
+        final List<GeoPoint> fill;
+        final List<GeoPoint> leftBoundary;
+        final List<GeoPoint> rightBoundary;
+        final List<List<GeoPoint>> arcs;
+
+        StaticGeometry(GeoPoint own, double bearing) {
+            this.originLat = own.getLatitude();
+            this.originLon = own.getLongitude();
+            this.bearing = bearing;
+
+            fill = new ArrayList<>();
+            fill.add(own);
+            final int fillSteps = 56;
+            double start = bearing - HALF_SECTOR_DEG;
+            double span = HALF_SECTOR_DEG * 2.0;
+            for (int i = 0; i <= fillSteps; i++) {
+                double b = start + span * i / fillSteps;
+                fill.add(GeoCalculations.pointAtDistance(
+                        own,
+                        b,
+                        MAX_RANGE_M
+                ));
+            }
+            fill.add(own);
+
+            leftBoundary = new ArrayList<>();
+            leftBoundary.add(own);
+            leftBoundary.add(GeoCalculations.pointAtDistance(
+                    own,
+                    bearing - HALF_SECTOR_DEG,
+                    MAX_RANGE_M
+            ));
+
+            rightBoundary = new ArrayList<>();
+            rightBoundary.add(own);
+            rightBoundary.add(GeoCalculations.pointAtDistance(
+                    own,
+                    bearing + HALF_SECTOR_DEG,
+                    MAX_RANGE_M
+            ));
+
+            arcs = new ArrayList<>();
+            for (double range = RANGE_STEP_M;
+                 range <= MAX_RANGE_M + 0.1;
+                 range += RANGE_STEP_M) {
+                List<GeoPoint> points = new ArrayList<>();
+                final int arcSteps = 42;
+                for (int i = 0; i <= arcSteps; i++) {
+                    double b = start + span * i / arcSteps;
+                    points.add(GeoCalculations.pointAtDistance(
+                            own,
+                            b,
+                            range
+                    ));
+                }
+                arcs.add(points);
+            }
+        }
+
+        boolean matches(GeoPoint own, double currentBearing) {
+            double delta = Math.abs(
+                    normalizeDegrees(bearing - currentBearing)
+            );
+            delta = Math.min(delta, 360.0 - delta);
+            return Math.abs(originLat - own.getLatitude()) < 1e-9
+                    && Math.abs(originLon - own.getLongitude()) < 1e-9
+                    && delta < 1e-7;
+        }
+    }
+
     public JarnsenMrsSectorTool(MapView mapView, MapGroup overlayGroup) {
         super(mapView, TOOL_IDENTIFIER);
         this.mapView = mapView;
@@ -194,6 +298,10 @@ public class JarnsenMrsSectorTool extends Tool
         for (MrsDrawing drawing : drawingStore.load()) {
             drawings.put(drawing.id, drawing);
         }
+        history.restore(
+                drawingStore.loadUndoHistory(),
+                drawingStore.loadRedoHistory()
+        );
 
         ToolManagerBroadcastReceiver.getInstance().registerTool(
                 TOOL_IDENTIFIER,
@@ -212,6 +320,7 @@ public class JarnsenMrsSectorTool extends Tool
     @Override
     public boolean onToolBegin(Bundle extras) {
         attachSelfListener();
+        maybeCheckForUpdate(false);
         if (activeDrawingId != null
                 && originPoint != null
                 && targetPoint != null) {
@@ -435,25 +544,39 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void showWorkspaceMenu() {
         activeDrawingId = null;
+        highlightedDrawingId = null;
         detachEndpointListeners();
         originPoint = null;
         targetPoint = null;
         drawingLabel = null;
         creatingNewDrawing = false;
+        redraw();
+
+        int visibleCount = 0;
+        for (MrsDrawing drawing : drawings.values()) {
+            if (drawing.visible) {
+                visibleCount++;
+            }
+        }
 
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle("Jarnsen Mrs Plugin")
                 .setMessage(
                         drawings.size() + " gespeicherte Zeichnung"
                                 + (drawings.size() == 1 ? "" : "en")
+                                + " · " + visibleCount + " sichtbar"
                 )
                 .setItems(
                         new String[]{
                                 "Neue Zeichnung",
                                 "Zeichnungen verwalten",
+                                "Alle anzeigen",
+                                "Alle ausblenden",
+                                "Import / Export",
                                 "Rückgängig",
                                 "Wiederholen",
                                 "Diagnose",
+                                "Nach Update suchen",
                                 "Schließen"
                         },
                         (ignored, which) -> {
@@ -463,11 +586,19 @@ public class JarnsenMrsSectorTool extends Tool
                             } else if (which == 1) {
                                 showDrawingListDialog();
                             } else if (which == 2) {
-                                undoWorkspace();
+                                setAllDrawingsVisible(true);
                             } else if (which == 3) {
-                                redoWorkspace();
+                                setAllDrawingsVisible(false);
                             } else if (which == 4) {
+                                showTransferDialog();
+                            } else if (which == 5) {
+                                undoWorkspace();
+                            } else if (which == 6) {
+                                redoWorkspace();
+                            } else if (which == 7) {
                                 showDiagnosticsDialog();
+                            } else if (which == 8) {
+                                maybeCheckForUpdate(true);
                             } else {
                                 closeTool();
                             }
@@ -494,27 +625,149 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
-        final List<MrsDrawing> list = new ArrayList<>(drawings.values());
-        CharSequence[] labels = new CharSequence[list.size()];
-        for (int i = 0; i < list.size(); i++) {
-            MrsDrawing d = list.get(i);
-            labels[i] = (d.label == null || d.label.trim().isEmpty()
+        int padding = Math.round(
+                12.0f * mapView.getResources().getDisplayMetrics().density
+        );
+
+        LinearLayout content = new LinearLayout(mapView.getContext());
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(padding, padding, padding, padding);
+
+        for (MrsDrawing drawing : new ArrayList<>(drawings.values())) {
+            LinearLayout card = new LinearLayout(mapView.getContext());
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(0, padding / 2, 0, padding);
+
+            LinearLayout header = new LinearLayout(mapView.getContext());
+            header.setOrientation(LinearLayout.HORIZONTAL);
+
+            CheckBox visible = new CheckBox(mapView.getContext());
+            visible.setChecked(drawing.visible);
+            visible.setText("Sichtbar");
+            header.addView(visible);
+
+            TextView title = new TextView(mapView.getContext());
+            String label = drawing.label == null
+                    || drawing.label.trim().isEmpty()
                     ? "Mrs"
-                    : d.label.trim())
-                    + "  ·  "
-                    + CoordinateFormatUtilities.formatToString(
-                            d.targetPoint().get(),
-                            CoordinateFormat.MGRS
-                    );
+                    : drawing.label.trim();
+            SpannableString drawingTitle = new SpannableString(
+                    "■  " + label + "\n"
+                            + CoordinateFormatUtilities.formatToString(
+                                    drawing.targetPoint().get(),
+                                    CoordinateFormat.MGRS
+                            )
+            );
+            drawingTitle.setSpan(
+                    new ForegroundColorSpan(
+                            Color.rgb(
+                                    Color.red(drawing.fillColor),
+                                    Color.green(drawing.fillColor),
+                                    Color.blue(drawing.fillColor)
+                            )
+                    ),
+                    0,
+                    1,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            );
+            title.setText(drawingTitle);
+            title.setTextSize(16.0f);
+            title.setPadding(padding / 2, 0, 0, 0);
+            title.setCompoundDrawablePadding(padding / 2);
+            header.addView(
+                    title,
+                    new LinearLayout.LayoutParams(
+                            0,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1.0f
+                    )
+            );
+            card.addView(header);
+
+            LinearLayout actions = new LinearLayout(mapView.getContext());
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+
+            Button open = new Button(mapView.getContext());
+            open.setText("Öffnen");
+            actions.addView(
+                    open,
+                    new LinearLayout.LayoutParams(
+                            0,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1.0f
+                    )
+            );
+
+            Button duplicate = new Button(mapView.getContext());
+            duplicate.setText("Kopie");
+            actions.addView(
+                    duplicate,
+                    new LinearLayout.LayoutParams(
+                            0,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1.0f
+                    )
+            );
+
+            Button delete = new Button(mapView.getContext());
+            delete.setText("Löschen");
+            actions.addView(
+                    delete,
+                    new LinearLayout.LayoutParams(
+                            0,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1.0f
+                    )
+            );
+            card.addView(actions);
+            content.addView(card);
+
+            visible.setOnCheckedChangeListener((button, checked) -> {
+                if (drawing.visible == checked) {
+                    return;
+                }
+                pushUndoState();
+                drawing.visible = checked;
+                drawing.updatedAt = System.currentTimeMillis();
+                drawingStore.save(drawings.values());
+                redraw();
+            });
+
+            open.setOnClickListener(button -> {
+                if (activeDialog != null) {
+                    activeDialog.dismiss();
+                    activeDialog = null;
+                }
+                highlightDrawing(drawing.id);
+                loadDrawingForEdit(drawing.id);
+                showExistingDrawingDialog();
+            });
+
+            duplicate.setOnClickListener(button -> {
+                if (activeDialog != null) {
+                    activeDialog.dismiss();
+                    activeDialog = null;
+                }
+                loadDrawingForEdit(drawing.id);
+                duplicateActiveDrawing();
+            });
+
+            delete.setOnClickListener(button -> {
+                if (activeDialog != null) {
+                    activeDialog.dismiss();
+                    activeDialog = null;
+                }
+                loadDrawingForEdit(drawing.id);
+                confirmDeleteActiveDrawing();
+            });
         }
 
+        ScrollView scroll = new ScrollView(mapView.getContext());
+        scroll.addView(content);
+
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
-                .setTitle("Zeichnungen")
-                .setItems(labels, (ignored, which) -> {
-                    activeDialog = null;
-                    loadDrawingForEdit(list.get(which).id);
-                    showExistingDrawingDialog();
-                })
+                .setTitle("Zeichnungen verwalten")
+                .setView(scroll)
                 .setNegativeButton("Zurück", (ignored, which) -> {
                     activeDialog = null;
                     showWorkspaceMenu();
@@ -527,6 +780,316 @@ public class JarnsenMrsSectorTool extends Tool
 
         activeDialog = dialog;
         dialog.show();
+    }
+
+    private void setAllDrawingsVisible(boolean visible) {
+        boolean changed = false;
+        for (MrsDrawing drawing : drawings.values()) {
+            if (drawing.visible != visible) {
+                changed = true;
+                break;
+            }
+        }
+
+        if (changed) {
+            pushUndoState();
+            for (MrsDrawing drawing : drawings.values()) {
+                drawing.visible = visible;
+                drawing.updatedAt = System.currentTimeMillis();
+            }
+            drawingStore.save(drawings.values());
+            redraw();
+        }
+
+        showWorkspaceMenu();
+    }
+
+    private void showTransferDialog() {
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Import / Export")
+                .setItems(
+                        new String[]{
+                                "JSON exportieren",
+                                "JSON in Zwischenablage kopieren",
+                                "JSON-Datei importieren",
+                                "Backup wiederherstellen",
+                                "Zurück"
+                        },
+                        (ignored, which) -> {
+                            activeDialog = null;
+                            if (which == 0) {
+                                exportDrawingsToFile();
+                            } else if (which == 1) {
+                                copyTextToClipboard(
+                                        "Jarnsen Mrs JSON",
+                                        drawingStore.exportPackage(
+                                                drawings.values())
+                                );
+                                Toast.makeText(
+                                        mapView.getContext(),
+                                        "JSON in Zwischenablage kopiert.",
+                                        Toast.LENGTH_SHORT
+                                ).show();
+                                showTransferDialog();
+                            } else if (which == 2) {
+                                showImportFileDialog();
+                            } else if (which == 3) {
+                                restoreDrawingBackup();
+                            } else {
+                                showWorkspaceMenu();
+                            }
+                        }
+                )
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .create();
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private File getTransferDirectory() {
+        File dir = FileSystemUtils.getItem(
+                FileSystemUtils.TOOL_DATA_DIRECTORY
+                        + File.separator
+                        + "jarnsen-mrs"
+        );
+        if (!dir.exists() && !dir.mkdirs()) {
+            lastDiagnosticError =
+                    "Exportordner konnte nicht erstellt werden: "
+                            + dir.getAbsolutePath();
+        }
+        return dir;
+    }
+
+    private void exportDrawingsToFile() {
+        File dir = getTransferDirectory();
+        if (!dir.exists()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Exportordner konnte nicht erstellt werden.",
+                    Toast.LENGTH_LONG
+            ).show();
+            showTransferDialog();
+            return;
+        }
+
+        String stamp = new SimpleDateFormat(
+                "yyyyMMdd-HHmmss",
+                Locale.US
+        ).format(new Date());
+        File file = new File(
+                dir,
+                "jarnsen-mrs-" + stamp + ".json"
+        );
+
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            output.write(
+                    drawingStore.exportPackage(drawings.values())
+                            .getBytes(StandardCharsets.UTF_8)
+            );
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Exportiert: " + file.getAbsolutePath(),
+                    Toast.LENGTH_LONG
+            ).show();
+        } catch (Exception e) {
+            lastDiagnosticError =
+                    "JSON-Export: " + e.getClass().getSimpleName();
+            Toast.makeText(
+                    mapView.getContext(),
+                    "JSON-Export fehlgeschlagen.",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+
+        showTransferDialog();
+    }
+
+    private void showImportFileDialog() {
+        File dir = getTransferDirectory();
+        File[] files = dir.listFiles(
+                file -> file.isFile()
+                        && file.getName().toLowerCase(Locale.US)
+                        .endsWith(".json")
+        );
+
+        if (files == null || files.length == 0) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Keine JSON-Dateien in " + dir.getAbsolutePath(),
+                    Toast.LENGTH_LONG
+            ).show();
+            showTransferDialog();
+            return;
+        }
+
+        java.util.Arrays.sort(
+                files,
+                (left, right) -> Long.compare(
+                        right.lastModified(),
+                        left.lastModified()
+                )
+        );
+
+        CharSequence[] names = new CharSequence[files.length];
+        for (int i = 0; i < files.length; i++) {
+            names[i] = files[i].getName();
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("JSON-Datei importieren")
+                .setItems(names, (ignored, which) -> {
+                    activeDialog = null;
+                    importDrawingFile(files[which]);
+                })
+                .setNegativeButton("Zurück", (ignored, which) -> {
+                    activeDialog = null;
+                    showTransferDialog();
+                })
+                .create();
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void importDrawingFile(File file) {
+        try {
+            byte[] bytes;
+            try (FileInputStream input = new FileInputStream(file)) {
+                bytes = new byte[(int) file.length()];
+                int offset = 0;
+                while (offset < bytes.length) {
+                    int read = input.read(bytes, offset, bytes.length - offset);
+                    if (read < 0) {
+                        break;
+                    }
+                    offset += read;
+                }
+                if (offset != bytes.length) {
+                    throw new IllegalStateException("Datei unvollständig");
+                }
+            }
+
+            List<MrsDrawing> imported = drawingStore.importPackage(
+                    new String(bytes, StandardCharsets.UTF_8)
+            );
+            if (imported == null) {
+                throw new IllegalArgumentException("Ungültiges JSON");
+            }
+            showImportModeDialog(imported, file.getName());
+        } catch (Exception e) {
+            lastDiagnosticError =
+                    "JSON-Import: " + e.getClass().getSimpleName();
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Import fehlgeschlagen: " + file.getName(),
+                    Toast.LENGTH_LONG
+            ).show();
+            showTransferDialog();
+        }
+    }
+
+    private void showImportModeDialog(
+            List<MrsDrawing> imported,
+            String sourceName) {
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Import: " + sourceName)
+                .setMessage(
+                        imported.size() + " Zeichnung"
+                                + (imported.size() == 1 ? "" : "en")
+                                + " gefunden."
+                )
+                .setItems(
+                        new String[]{
+                                "Zusammenführen",
+                                "Vorhandene ersetzen",
+                                "Abbrechen"
+                        },
+                        (ignored, which) -> {
+                            activeDialog = null;
+                            if (which == 0) {
+                                pushUndoState();
+                                for (MrsDrawing drawing : imported) {
+                                    MrsDrawing value = drawing;
+                                    if (drawings.containsKey(value.id)) {
+                                        value = value.copyAsNew();
+                                        value.label =
+                                                (value.label == null
+                                                        ? "Mrs"
+                                                        : value.label)
+                                                        + " (Import)";
+                                    }
+                                    drawings.put(value.id, value);
+                                }
+                                geometryCache.clear();
+                                drawingStore.save(drawings.values());
+                                redraw();
+                                showDrawingListDialog();
+                            } else if (which == 1) {
+                                pushUndoState();
+                                drawings.clear();
+                                for (MrsDrawing drawing : imported) {
+                                    drawings.put(drawing.id, drawing);
+                                }
+                                geometryCache.clear();
+                                drawingStore.save(drawings.values());
+                                redraw();
+                                showDrawingListDialog();
+                            } else {
+                                showTransferDialog();
+                            }
+                        }
+                )
+                .create();
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void restoreDrawingBackup() {
+        String backup = drawingStore.getBackupSnapshot();
+        if (backup.isEmpty()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Kein gültiges Backup vorhanden.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showTransferDialog();
+            return;
+        }
+
+        pushUndoState();
+        restoreWorkspaceSnapshot(backup);
+        Toast.makeText(
+                mapView.getContext(),
+                "Letztes gültiges Backup wiederhergestellt.",
+                Toast.LENGTH_SHORT
+        ).show();
+        showWorkspaceMenu();
+    }
+
+    private void copyTextToClipboard(String label, String text) {
+        ClipboardManager clipboard =
+                (ClipboardManager) mapView.getContext()
+                        .getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(
+                    ClipData.newPlainText(label, text)
+            );
+        }
+    }
+
+    private void highlightDrawing(String drawingId) {
+        highlightedDrawingId = drawingId;
+        redraw();
+        mapView.postDelayed(() -> {
+            if (drawingId != null
+                    && drawingId.equals(highlightedDrawingId)
+                    && !drawingId.equals(activeDrawingId)) {
+                highlightedDrawingId = null;
+                redraw();
+            }
+        }, 1600L);
     }
 
     private void loadDrawingForEdit(String drawingId) {
@@ -615,15 +1178,16 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void pushUndoState() {
         String snapshot = drawingStore.snapshot(drawings.values());
-        if (!undoStates.isEmpty() && snapshot.equals(undoStates.peekLast())) {
-            return;
+        if (history.push(snapshot)) {
+            persistHistory();
         }
+    }
 
-        undoStates.addLast(snapshot);
-        while (undoStates.size() > MAX_UNDO_STATES) {
-            undoStates.removeFirst();
-        }
-        redoStates.clear();
+    private void persistHistory() {
+        drawingStore.saveHistory(
+                history.undoSnapshots(),
+                history.redoSnapshots()
+        );
     }
 
     private void restoreWorkspaceSnapshot(String snapshot) {
@@ -632,6 +1196,7 @@ public class JarnsenMrsSectorTool extends Tool
             drawings.put(d.id, d);
         }
 
+        geometryCache.clear();
         activeDrawingId = null;
         creatingNewDrawing = false;
         detachEndpointListeners();
@@ -643,7 +1208,10 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void undoWorkspace() {
-        if (undoStates.isEmpty()) {
+        String previous = history.undo(
+                drawingStore.snapshot(drawings.values())
+        );
+        if (previous == null) {
             Toast.makeText(
                     mapView.getContext(),
                     "Nichts zum Rückgängigmachen.",
@@ -653,14 +1221,16 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
-        redoStates.addLast(drawingStore.snapshot(drawings.values()));
-        String previous = undoStates.removeLast();
+        persistHistory();
         restoreWorkspaceSnapshot(previous);
         showWorkspaceMenu();
     }
 
     private void redoWorkspace() {
-        if (redoStates.isEmpty()) {
+        String next = history.redo(
+                drawingStore.snapshot(drawings.values())
+        );
+        if (next == null) {
             Toast.makeText(
                     mapView.getContext(),
                     "Nichts zum Wiederholen.",
@@ -670,8 +1240,7 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
-        undoStates.addLast(drawingStore.snapshot(drawings.values()));
-        String next = redoStates.removeLast();
+        persistHistory();
         restoreWorkspaceSnapshot(next);
         showWorkspaceMenu();
     }
@@ -684,6 +1253,7 @@ public class JarnsenMrsSectorTool extends Tool
 
         pushUndoState();
         drawings.remove(activeDrawingId);
+        geometryCache.remove(activeDrawingId);
         drawingStore.save(drawings.values());
         activeDrawingId = null;
         creatingNewDrawing = false;
@@ -704,6 +1274,7 @@ public class JarnsenMrsSectorTool extends Tool
 
         pushUndoState();
         MrsDrawing copy = source.copyAsNew();
+        copy.visible = true;
         copy.label = (source.label == null || source.label.trim().isEmpty())
                 ? "Mrs Kopie"
                 : source.label.trim() + " Kopie";
@@ -714,38 +1285,29 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void showDiagnosticsDialog() {
-        String atakVersion = "unbekannt";
-        try {
-            atakVersion = mapView.getContext()
-                    .getPackageManager()
-                    .getPackageInfo("com.atakmap.app", 0)
-                    .versionName;
-        } catch (Exception ignored) {
-        }
-
-        String signatureStatus = getSignatureSummary();
-
-        String message =
-                "Plugin: " + BuildConfig.VERSION_NAME
-                        + "\nATAK installiert: " + atakVersion
-                        + "\nATAK Ziel-API: 5.6.0 CIV"
-                        + "\nAPK-Signatur: " + signatureStatus
-                        + "\nZeichnungen: " + drawings.size()
-                        + "\nUndo/Redo: " + undoStates.size()
-                        + "/" + redoStates.size()
-                        + "\nMax. Reichweite: 8 km (fest)"
-                        + "\nLetzte MGRS: "
-                        + (drawingStore.getLastMgrs().isEmpty()
-                        ? "—"
-                        : drawingStore.getLastMgrs())
-                        + "\nLetzter Fehler: " + lastDiagnosticError;
+        String message = buildDiagnosticsText();
 
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle("Jarnsen Mrs Diagnose")
                 .setMessage(message)
-                .setPositiveButton("OK", (ignored, which) -> {
+                .setPositiveButton("Zurück", (ignored, which) -> {
                     activeDialog = null;
                     showWorkspaceMenu();
+                })
+                .setNeutralButton("Kopieren", (ignored, which) -> {
+                    activeDialog = null;
+                    copyTextToClipboard("Jarnsen Mrs Diagnose", message);
+                    Toast.makeText(
+                            mapView.getContext(),
+                            "Diagnose in Zwischenablage kopiert.",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                    showDiagnosticsDialog();
+                })
+                .setNegativeButton("Exportieren", (ignored, which) -> {
+                    activeDialog = null;
+                    exportDiagnosticsToFile(message);
+                    showDiagnosticsDialog();
                 })
                 .setOnCancelListener(ignored -> {
                     activeDialog = null;
@@ -757,12 +1319,90 @@ public class JarnsenMrsSectorTool extends Tool
         dialog.show();
     }
 
+    private String buildDiagnosticsText() {
+        String atakVersion = "unbekannt";
+        try {
+            atakVersion = mapView.getContext()
+                    .getPackageManager()
+                    .getPackageInfo("com.atakmap.app", 0)
+                    .versionName;
+        } catch (Exception ignored) {
+        }
+
+        int visibleCount = 0;
+        for (MrsDrawing drawing : drawings.values()) {
+            if (drawing.visible) {
+                visibleCount++;
+            }
+        }
+
+        String signatureStatus = getSignatureSummary();
+        return "Plugin: " + BuildConfig.VERSION_NAME
+                + "\nATAK installiert: " + atakVersion
+                + "\nATAK Ziel-API: 5.6.0 CIV"
+                + "\nAPK-Signatur: " + signatureStatus
+                + "\nZeichnungen: " + drawings.size()
+                + " (" + visibleCount + " sichtbar)"
+                + "\nUndo/Redo: " + history.undoSize()
+                + "/" + history.redoSize()
+                + "\nGeometrie-Cache Treffer/Neu: "
+                + geometryCacheHits + "/" + geometryCacheMisses
+                + "\nMax. Reichweite: 8 km (fest)"
+                + "\nLetzte MGRS: "
+                + (drawingStore.getLastMgrs().isEmpty()
+                ? "—"
+                : drawingStore.getLastMgrs())
+                + "\nBackup: "
+                + (drawingStore.getBackupSnapshot().isEmpty()
+                ? "nicht vorhanden"
+                : "vorhanden")
+                + "\nLetzter Fehler: " + lastDiagnosticError;
+    }
+
+    private void exportDiagnosticsToFile(String text) {
+        File dir = getTransferDirectory();
+        if (!dir.exists()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Diagnoseexport fehlgeschlagen.",
+                    Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
+        String stamp = new SimpleDateFormat(
+                "yyyyMMdd-HHmmss",
+                Locale.US
+        ).format(new Date());
+        File file = new File(
+                dir,
+                "diagnose-" + stamp + ".txt"
+        );
+
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            output.write(text.getBytes(StandardCharsets.UTF_8));
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Diagnose exportiert: " + file.getAbsolutePath(),
+                    Toast.LENGTH_LONG
+            ).show();
+        } catch (Exception e) {
+            lastDiagnosticError =
+                    "Diagnoseexport: " + e.getClass().getSimpleName();
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Diagnoseexport fehlgeschlagen.",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
     private String getSignatureSummary() {
         try {
             android.content.pm.PackageInfo info = mapView.getContext()
                     .getPackageManager()
                     .getPackageInfo(
-                            mapView.getContext().getPackageName(),
+                            BuildConfig.APPLICATION_ID,
                             android.content.pm.PackageManager.GET_SIGNATURES
                     );
 
@@ -795,6 +1435,100 @@ public class JarnsenMrsSectorTool extends Tool
                     "Signaturprüfung: " + e.getClass().getSimpleName();
             return "nicht ermittelt";
         }
+    }
+
+    private void maybeCheckForUpdate(boolean userRequested) {
+        SharedPreferences prefs = PreferenceManager
+                .getDefaultSharedPreferences(mapView.getContext());
+        long now = System.currentTimeMillis();
+        long last = prefs.getLong(PREF_UPDATE_CHECK_AT, 0L);
+
+        if (!userRequested
+                && now - last < UPDATE_CHECK_INTERVAL_MS) {
+            return;
+        }
+
+        prefs.edit().putLong(PREF_UPDATE_CHECK_AT, now).apply();
+
+        if (userRequested) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Prüfe GitHub-Release…",
+                    Toast.LENGTH_SHORT
+            ).show();
+        }
+
+        String current = MrsUpdateChecker.stripVersionPrefix(
+                BuildConfig.VERSION_NAME
+        );
+        MrsUpdateChecker.checkAsync(current, result ->
+                mapView.post(() ->
+                        handleUpdateResult(result, userRequested)
+                )
+        );
+    }
+
+    private void handleUpdateResult(
+            MrsUpdateChecker.Result result,
+            boolean userRequested) {
+        if (result.updateAvailable) {
+            if (!userRequested) {
+                Toast.makeText(
+                        mapView.getContext(),
+                        "Neue Jarnsen-Mrs-Version "
+                                + result.latestVersion
+                                + " verfügbar.",
+                        Toast.LENGTH_LONG
+                ).show();
+                return;
+            }
+
+            AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                    .setTitle("Update verfügbar")
+                    .setMessage(
+                            "Version " + result.latestVersion
+                                    + " ist auf GitHub verfügbar."
+                    )
+                    .setPositiveButton("Link kopieren", (ignored, which) -> {
+                        activeDialog = null;
+                        copyTextToClipboard(
+                                "Jarnsen Mrs Release",
+                                result.releaseUrl
+                        );
+                        Toast.makeText(
+                                mapView.getContext(),
+                                "Release-Link kopiert.",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                        showWorkspaceMenu();
+                    })
+                    .setNegativeButton("Zurück", (ignored, which) -> {
+                        activeDialog = null;
+                        showWorkspaceMenu();
+                    })
+                    .create();
+            activeDialog = dialog;
+            dialog.show();
+            return;
+        }
+
+        if (!userRequested) {
+            return;
+        }
+
+        String text = result.error == null
+                ? "Die installierte Version ist aktuell."
+                : "Update-Prüfung nicht verfügbar: " + result.error;
+        if (result.error != null) {
+            lastDiagnosticError = "Update-Prüfung: " + result.error;
+        }
+
+        Toast.makeText(
+                mapView.getContext(),
+                text,
+                Toast.LENGTH_LONG
+        ).show();
+        showWorkspaceMenu();
     }
 
     private void showPointSourceDialog(final SelectionStage stage) {
@@ -998,7 +1732,10 @@ public class JarnsenMrsSectorTool extends Tool
         marker.setTitle(title);
         marker.setType("shape_marker");
         marker.setShowLabel(true);
+        marker.setAlwaysShowText(true);
+        marker.setLabelTextSize(15);
         marker.setColor(color);
+        setHandleIcon(marker, color, 52);
         marker.setClickable(true);
         marker.setEditable(true);
         marker.setMovable(true);
@@ -1018,6 +1755,23 @@ public class JarnsenMrsSectorTool extends Tool
         return marker;
     }
 
+    private void setHandleIcon(
+            Marker marker,
+            int color,
+            int size) {
+        String uri = "android.resource://"
+                + BuildConfig.APPLICATION_ID
+                + "/"
+                + R.drawable.mrs_handle;
+        Icon icon = new Icon.Builder()
+                .setImageUri(Icon.STATE_DEFAULT, uri)
+                .setColor(Icon.STATE_DEFAULT, color)
+                .setSize(size, size)
+                .setAnchor(Icon.ANCHOR_CENTER, Icon.ANCHOR_CENTER)
+                .build();
+        marker.setIcon(icon);
+    }
+
     private void handleEndpointDrag(MapItem item, MapEvent event) {
         if (!(item instanceof PointMapItem)
                 || event == null
@@ -1028,6 +1782,23 @@ public class JarnsenMrsSectorTool extends Tool
         String role = item.getMetaString(META_MRS_HANDLE, null);
         if (role == null) {
             return;
+        }
+
+        if (item instanceof Marker) {
+            Marker handle = (Marker) item;
+            if (MapEvent.ITEM_DRAG_STARTED.equals(event.getType())) {
+                setHandleIcon(
+                        handle,
+                        "origin".equals(role)
+                                ? COLOR_PRIMARY
+                                : COLOR_TARGET,
+                        76
+                );
+            }
+            if (MapEvent.ITEM_DRAG_STARTED.equals(event.getType())
+                    || MapEvent.ITEM_DRAG_CONTINUED.equals(event.getType())) {
+                DragMarkerHelper.getInstance().updateWidget(item);
+            }
         }
 
         GeoPointMetaData moved = mapView.inverseWithElevation(
@@ -1066,6 +1837,7 @@ public class JarnsenMrsSectorTool extends Tool
         redraw();
 
         if (MapEvent.ITEM_DRAG_DROPPED.equals(event.getType())) {
+            DragMarkerHelper.getInstance().hideWidget();
             commitEditorToWorkspace();
             removeEditHandles();
             editingExistingPoint = false;
@@ -1286,6 +2058,10 @@ public class JarnsenMrsSectorTool extends Tool
                 InputType.TYPE_CLASS_TEXT
                         | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
         );
+
+        TextView recognized = new TextView(mapView.getContext());
+        recognized.setTextSize(13.0f);
+
         mgrs.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(
@@ -1308,6 +2084,7 @@ public class JarnsenMrsSectorTool extends Tool
                 String value = normalizeMgrs(editable.toString());
                 if (value.length() < 5) {
                     mgrs.setError(null);
+                    recognized.setText("");
                     return;
                 }
 
@@ -1316,10 +2093,22 @@ public class JarnsenMrsSectorTool extends Tool
                             value,
                             CoordinateFormat.MGRS
                     );
-                    mgrs.setError(isUsable(point)
-                            ? null
-                            : "MGRS ungültig");
+                    if (isUsable(point)) {
+                        mgrs.setError(null);
+                        recognized.setText(
+                                "Erkannt: "
+                                        + CoordinateFormatUtilities
+                                        .formatToString(
+                                                point,
+                                                CoordinateFormat.MGRS
+                                        )
+                        );
+                    } else {
+                        recognized.setText("");
+                        mgrs.setError("MGRS ungültig");
+                    }
                 } catch (Exception ignored) {
+                    recognized.setText("");
                     mgrs.setError("MGRS noch unvollständig/ungültig");
                 }
             }
@@ -1342,8 +2131,13 @@ public class JarnsenMrsSectorTool extends Tool
                 20.0f * mapView.getResources().getDisplayMetrics().density
         );
         LinearLayout holder = new LinearLayout(mapView.getContext());
+        holder.setOrientation(LinearLayout.VERTICAL);
         holder.setPadding(padding, 0, padding, 0);
         holder.addView(mgrs, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+        holder.addView(recognized, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
         ));
@@ -1481,14 +2275,7 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private static String normalizeMgrs(String value) {
-        if (value == null) {
-            return "";
-        }
-
-        return value.toUpperCase(Locale.US)
-                .replaceAll("[^A-Z0-9 ]", " ")
-                .trim()
-                .replaceAll("\\s+", " ");
+        return MrsCoreLogic.normalizeMgrsInput(value);
     }
 
     private void showCoordinateDialog(final SelectionStage stage) {
@@ -1704,6 +2491,7 @@ public class JarnsenMrsSectorTool extends Tool
         editingExistingPoint = false;
         creatingNewDrawing = false;
         activeDrawingId = null;
+        highlightedDrawingId = null;
         detachEndpointListeners();
         originPoint = null;
         targetPoint = null;
@@ -1962,6 +2750,11 @@ public class JarnsenMrsSectorTool extends Tool
         attachSelfListener();
 
         for (MrsDrawing d : drawings.values()) {
+            if (!d.visible
+                    && (activeDrawingId == null
+                    || !activeDrawingId.equals(d.id))) {
+                continue;
+            }
             if (activeDrawingId != null
                     && activeDrawingId.equals(d.id)
                     && originPoint != null
@@ -2039,8 +2832,18 @@ public class JarnsenMrsSectorTool extends Tool
 
         renderDrawing = d;
         renderDrawingId = d.id;
+        renderHighlighted =
+                (activeDrawingId != null
+                        && activeDrawingId.equals(d.id))
+                        || (highlightedDrawingId != null
+                        && highlightedDrawingId.equals(d.id));
 
         double trueBearing = normalizeDegrees(own.bearingTo(target));
+        StaticGeometry staticGeometry = getStaticGeometry(
+                d.id,
+                own,
+                trueBearing
+        );
         double gridBearing = toGridBearing(own, target, trueBearing);
         int gridMil = degreesToMil(gridBearing);
         double bracketAnchor = targetDistance / 2.0;
@@ -2053,10 +2856,10 @@ public class JarnsenMrsSectorTool extends Tool
         );
 
         if (d.showFill) {
-            addSectorFill(own, trueBearing);
+            addSectorFill(staticGeometry.fill);
         }
-        addSectorBoundary(own, trueBearing - HALF_SECTOR_DEG);
-        addSectorBoundary(own, trueBearing + HALF_SECTOR_DEG);
+        addSectorBoundary(staticGeometry.leftBoundary);
+        addSectorBoundary(staticGeometry.rightBoundary);
 
         int ringIndex = 0;
         for (double range = RANGE_STEP_M;
@@ -2066,7 +2869,10 @@ public class JarnsenMrsSectorTool extends Tool
             boolean fullKm = (((int) Math.round(range)) % 1000) == 0;
             boolean visible = fullKm ? d.showKm : d.showHalfKm;
             if (visible) {
-                addRangeArc(own, trueBearing, range, fullKm);
+                addRangeArc(
+                        staticGeometry.arcs.get(ringIndex),
+                        fullKm
+                );
                 addRangeTick(own, trueBearing, range, fullKm);
                 if (d.showRangeLabels) {
                     addRangeLabelSmart(
@@ -2116,23 +2922,27 @@ public class JarnsenMrsSectorTool extends Tool
 
         renderDrawing = null;
         renderDrawingId = null;
+        renderHighlighted = false;
     }
 
-    private void addSectorFill(GeoPoint own, double bearing) {
-        List<GeoPoint> pts = new ArrayList<>();
-        pts.add(own);
-
-        final int steps = 56;
-        double start = bearing - HALF_SECTOR_DEG;
-        double span = HALF_SECTOR_DEG * 2.0;
-
-        for (int i = 0; i <= steps; i++) {
-            double b = start + span * i / steps;
-            pts.add(GeoCalculations.pointAtDistance(own, b, MAX_RANGE_M));
+    private StaticGeometry getStaticGeometry(
+            String drawingId,
+            GeoPoint own,
+            double bearing) {
+        String key = drawingId == null ? "__none__" : drawingId;
+        StaticGeometry cached = geometryCache.get(key);
+        if (cached != null && cached.matches(own, bearing)) {
+            geometryCacheHits++;
+            return cached;
         }
 
-        pts.add(own);
+        geometryCacheMisses++;
+        StaticGeometry created = new StaticGeometry(own, bearing);
+        geometryCache.put(key, created);
+        return created;
+    }
 
+    private void addSectorFill(List<GeoPoint> pts) {
         Polyline sector = makePolyline(
                 pts,
                 COLOR_PRIMARY_FAINT,
@@ -2152,40 +2962,25 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(sector);
     }
 
-    private void addSectorBoundary(GeoPoint own, double bearing) {
-        List<GeoPoint> pts = new ArrayList<>();
-        pts.add(own);
-        pts.add(GeoCalculations.pointAtDistance(own, bearing, MAX_RANGE_M));
-
+    private void addSectorBoundary(List<GeoPoint> pts) {
         addLocalItem(makePolyline(
                 pts,
                 Color.WHITE,
-                2.3,
+                renderHighlighted ? 3.1 : 2.3,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
 
     private void addRangeArc(
-            GeoPoint own,
-            double bearing,
-            double range,
+            List<GeoPoint> pts,
             boolean fullKm) {
-
-        List<GeoPoint> pts = new ArrayList<>();
-
-        final int steps = 42;
-        double start = bearing - HALF_SECTOR_DEG;
-        double span = HALF_SECTOR_DEG * 2.0;
-
-        for (int i = 0; i <= steps; i++) {
-            double b = start + span * i / steps;
-            pts.add(GeoCalculations.pointAtDistance(own, b, range));
-        }
 
         Polyline arc = makePolyline(
                 pts,
                 fullKm ? COLOR_PRIMARY : COLOR_PRIMARY_SOFT,
-                fullKm ? 2.3 : 1.15,
+                fullKm
+                        ? (renderHighlighted ? 2.8 : 2.3)
+                        : (renderHighlighted ? 1.45 : 1.15),
                 fullKm
                         ? Shape.BASIC_LINE_STYLE_SOLID
                         : Shape.BASIC_LINE_STYLE_DASHED
@@ -2308,7 +3103,7 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(makePolyline(
                 pts,
                 Color.WHITE,
-                2.0,
+                renderHighlighted ? 3.4 : 2.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
@@ -2359,13 +3154,13 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(makePolyline(
                 left,
                 Color.WHITE,
-                2.0,
+                renderHighlighted ? 3.0 : 2.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
         addLocalItem(makePolyline(
                 right,
                 Color.WHITE,
-                2.0,
+                renderHighlighted ? 3.0 : 2.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
@@ -2388,13 +3183,13 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(makePolyline(
                 cross1,
                 COLOR_TARGET,
-                2.7,
+                renderHighlighted ? 3.4 : 2.7,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
         addLocalItem(makePolyline(
                 cross2,
                 COLOR_TARGET,
-                2.7,
+                renderHighlighted ? 3.4 : 2.7,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
@@ -2450,13 +3245,13 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(makePolyline(
                 upper,
                 Color.WHITE,
-                3.0,
+                renderHighlighted ? 4.1 : 3.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
         addLocalItem(makePolyline(
                 lower,
                 Color.WHITE,
-                3.0,
+                renderHighlighted ? 4.1 : 3.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
@@ -2611,14 +3406,7 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private static int degreesToMil(double degrees) {
-        int mil = (int) Math.round(
-                normalizeDegrees(degrees) * 6400.0 / 360.0
-        );
-        mil %= 6400;
-        if (mil < 0) {
-            mil += 6400;
-        }
-        return mil;
+        return MrsCoreLogic.degreesToMil(degrees);
     }
 
     private static String formatRange(double meters) {
@@ -2695,10 +3483,6 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private static double normalizeDegrees(double value) {
-        double out = value % 360.0;
-        if (out < 0.0) {
-            out += 360.0;
-        }
-        return out;
+        return MrsCoreLogic.normalizeDegrees(value);
     }
 }
