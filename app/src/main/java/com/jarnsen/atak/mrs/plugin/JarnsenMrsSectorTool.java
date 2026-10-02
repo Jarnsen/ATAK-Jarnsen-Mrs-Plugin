@@ -215,6 +215,78 @@ public class JarnsenMrsSectorTool extends Tool
         TARGET
     }
 
+    private static final class StaticGeometry {
+        final double originLat;
+        final double originLon;
+        final double bearing;
+        final List<GeoPoint> fill;
+        final List<GeoPoint> leftBoundary;
+        final List<GeoPoint> rightBoundary;
+        final List<List<GeoPoint>> arcs;
+
+        StaticGeometry(GeoPoint own, double bearing) {
+            this.originLat = own.getLatitude();
+            this.originLon = own.getLongitude();
+            this.bearing = bearing;
+
+            fill = new ArrayList<>();
+            fill.add(own);
+            final int fillSteps = 56;
+            double start = bearing - HALF_SECTOR_DEG;
+            double span = HALF_SECTOR_DEG * 2.0;
+            for (int i = 0; i <= fillSteps; i++) {
+                double b = start + span * i / fillSteps;
+                fill.add(GeoCalculations.pointAtDistance(
+                        own,
+                        b,
+                        MAX_RANGE_M
+                ));
+            }
+            fill.add(own);
+
+            leftBoundary = new ArrayList<>();
+            leftBoundary.add(own);
+            leftBoundary.add(GeoCalculations.pointAtDistance(
+                    own,
+                    bearing - HALF_SECTOR_DEG,
+                    MAX_RANGE_M
+            ));
+
+            rightBoundary = new ArrayList<>();
+            rightBoundary.add(own);
+            rightBoundary.add(GeoCalculations.pointAtDistance(
+                    own,
+                    bearing + HALF_SECTOR_DEG,
+                    MAX_RANGE_M
+            ));
+
+            arcs = new ArrayList<>();
+            for (double range = RANGE_STEP_M;
+                 range <= MAX_RANGE_M + 0.1;
+                 range += RANGE_STEP_M) {
+                List<GeoPoint> points = new ArrayList<>();
+                final int arcSteps = 42;
+                for (int i = 0; i <= arcSteps; i++) {
+                    double b = start + span * i / arcSteps;
+                    points.add(GeoCalculations.pointAtDistance(
+                            own,
+                            b,
+                            range
+                    ));
+                }
+                arcs.add(points);
+            }
+        }
+
+        boolean matches(GeoPoint own, double currentBearing) {
+            return Math.abs(originLat - own.getLatitude()) < 1e-9
+                    && Math.abs(originLon - own.getLongitude()) < 1e-9
+                    && Math.abs(
+                    normalizeDegrees(bearing - currentBearing)
+            ) < 1e-7;
+        }
+    }
+
     public JarnsenMrsSectorTool(MapView mapView, MapGroup overlayGroup) {
         super(mapView, TOOL_IDENTIFIER);
         this.mapView = mapView;
@@ -2400,6 +2472,7 @@ public class JarnsenMrsSectorTool extends Tool
         editingExistingPoint = false;
         creatingNewDrawing = false;
         activeDrawingId = null;
+        highlightedDrawingId = null;
         detachEndpointListeners();
         originPoint = null;
         targetPoint = null;
@@ -2740,8 +2813,18 @@ public class JarnsenMrsSectorTool extends Tool
 
         renderDrawing = d;
         renderDrawingId = d.id;
+        renderHighlighted =
+                (activeDrawingId != null
+                        && activeDrawingId.equals(d.id))
+                        || (highlightedDrawingId != null
+                        && highlightedDrawingId.equals(d.id));
 
         double trueBearing = normalizeDegrees(own.bearingTo(target));
+        StaticGeometry staticGeometry = getStaticGeometry(
+                d.id,
+                own,
+                trueBearing
+        );
         double gridBearing = toGridBearing(own, target, trueBearing);
         int gridMil = degreesToMil(gridBearing);
         double bracketAnchor = targetDistance / 2.0;
@@ -2754,10 +2837,10 @@ public class JarnsenMrsSectorTool extends Tool
         );
 
         if (d.showFill) {
-            addSectorFill(own, trueBearing);
+            addSectorFill(staticGeometry.fill);
         }
-        addSectorBoundary(own, trueBearing - HALF_SECTOR_DEG);
-        addSectorBoundary(own, trueBearing + HALF_SECTOR_DEG);
+        addSectorBoundary(staticGeometry.leftBoundary);
+        addSectorBoundary(staticGeometry.rightBoundary);
 
         int ringIndex = 0;
         for (double range = RANGE_STEP_M;
@@ -2767,7 +2850,10 @@ public class JarnsenMrsSectorTool extends Tool
             boolean fullKm = (((int) Math.round(range)) % 1000) == 0;
             boolean visible = fullKm ? d.showKm : d.showHalfKm;
             if (visible) {
-                addRangeArc(own, trueBearing, range, fullKm);
+                addRangeArc(
+                        staticGeometry.arcs.get(ringIndex),
+                        fullKm
+                );
                 addRangeTick(own, trueBearing, range, fullKm);
                 if (d.showRangeLabels) {
                     addRangeLabelSmart(
@@ -2817,23 +2903,27 @@ public class JarnsenMrsSectorTool extends Tool
 
         renderDrawing = null;
         renderDrawingId = null;
+        renderHighlighted = false;
     }
 
-    private void addSectorFill(GeoPoint own, double bearing) {
-        List<GeoPoint> pts = new ArrayList<>();
-        pts.add(own);
-
-        final int steps = 56;
-        double start = bearing - HALF_SECTOR_DEG;
-        double span = HALF_SECTOR_DEG * 2.0;
-
-        for (int i = 0; i <= steps; i++) {
-            double b = start + span * i / steps;
-            pts.add(GeoCalculations.pointAtDistance(own, b, MAX_RANGE_M));
+    private StaticGeometry getStaticGeometry(
+            String drawingId,
+            GeoPoint own,
+            double bearing) {
+        String key = drawingId == null ? "__none__" : drawingId;
+        StaticGeometry cached = geometryCache.get(key);
+        if (cached != null && cached.matches(own, bearing)) {
+            geometryCacheHits++;
+            return cached;
         }
 
-        pts.add(own);
+        geometryCacheMisses++;
+        StaticGeometry created = new StaticGeometry(own, bearing);
+        geometryCache.put(key, created);
+        return created;
+    }
 
+    private void addSectorFill(List<GeoPoint> pts) {
         Polyline sector = makePolyline(
                 pts,
                 COLOR_PRIMARY_FAINT,
@@ -2853,40 +2943,25 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(sector);
     }
 
-    private void addSectorBoundary(GeoPoint own, double bearing) {
-        List<GeoPoint> pts = new ArrayList<>();
-        pts.add(own);
-        pts.add(GeoCalculations.pointAtDistance(own, bearing, MAX_RANGE_M));
-
+    private void addSectorBoundary(List<GeoPoint> pts) {
         addLocalItem(makePolyline(
                 pts,
                 Color.WHITE,
-                2.3,
+                renderHighlighted ? 3.1 : 2.3,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
 
     private void addRangeArc(
-            GeoPoint own,
-            double bearing,
-            double range,
+            List<GeoPoint> pts,
             boolean fullKm) {
-
-        List<GeoPoint> pts = new ArrayList<>();
-
-        final int steps = 42;
-        double start = bearing - HALF_SECTOR_DEG;
-        double span = HALF_SECTOR_DEG * 2.0;
-
-        for (int i = 0; i <= steps; i++) {
-            double b = start + span * i / steps;
-            pts.add(GeoCalculations.pointAtDistance(own, b, range));
-        }
 
         Polyline arc = makePolyline(
                 pts,
                 fullKm ? COLOR_PRIMARY : COLOR_PRIMARY_SOFT,
-                fullKm ? 2.3 : 1.15,
+                fullKm
+                        ? (renderHighlighted ? 2.8 : 2.3)
+                        : (renderHighlighted ? 1.45 : 1.15),
                 fullKm
                         ? Shape.BASIC_LINE_STYLE_SOLID
                         : Shape.BASIC_LINE_STYLE_DASHED
@@ -3009,7 +3084,7 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(makePolyline(
                 pts,
                 Color.WHITE,
-                2.0,
+                renderHighlighted ? 3.4 : 2.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
@@ -3060,13 +3135,13 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(makePolyline(
                 left,
                 Color.WHITE,
-                2.0,
+                renderHighlighted ? 3.0 : 2.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
         addLocalItem(makePolyline(
                 right,
                 Color.WHITE,
-                2.0,
+                renderHighlighted ? 3.0 : 2.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
@@ -3089,13 +3164,13 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(makePolyline(
                 cross1,
                 COLOR_TARGET,
-                2.7,
+                renderHighlighted ? 3.4 : 2.7,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
         addLocalItem(makePolyline(
                 cross2,
                 COLOR_TARGET,
-                2.7,
+                renderHighlighted ? 3.4 : 2.7,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
@@ -3151,13 +3226,13 @@ public class JarnsenMrsSectorTool extends Tool
         addLocalItem(makePolyline(
                 upper,
                 Color.WHITE,
-                3.0,
+                renderHighlighted ? 4.1 : 3.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
         addLocalItem(makePolyline(
                 lower,
                 Color.WHITE,
-                3.0,
+                renderHighlighted ? 4.1 : 3.0,
                 Shape.BASIC_LINE_STYLE_SOLID
         ));
     }
