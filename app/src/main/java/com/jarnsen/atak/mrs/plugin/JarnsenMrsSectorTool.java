@@ -975,8 +975,10 @@ public class JarnsenMrsSectorTool extends Tool
                     current.get(),
                     CoordinateFormat.MGRS
             ));
-            mgrs.setSelection(mgrs.getText().length());
+        } else if (!drawingStore.getLastMgrs().isEmpty()) {
+            mgrs.setText(drawingStore.getLastMgrs());
         }
+        mgrs.setSelection(mgrs.getText().length());
 
         int padding = Math.round(
                 20.0f * mapView.getResources().getDisplayMetrics().density
@@ -992,11 +994,20 @@ public class JarnsenMrsSectorTool extends Tool
                 .setTitle((stage == SelectionStage.ORIGIN
                         ? "Startpunkt"
                         : "Zielpunkt") + " – MGRS")
+                .setMessage(
+                        "MGRS kann direkt eingegeben oder aus der "
+                                + "Zwischenablage eingefügt werden."
+                )
                 .setView(holder)
                 .setPositiveButton("Übernehmen", null)
+                .setNeutralButton("Einfügen", null)
                 .setNegativeButton("Zurück", (ignored, which) -> {
                     activeDialog = null;
-                    showPointSourceDialog(stage);
+                    if (editingExistingPoint) {
+                        showEditDrawingDialog();
+                    } else {
+                        showPointSourceDialog(stage);
+                    }
                 })
                 .setOnCancelListener(ignored -> {
                     activeDialog = null;
@@ -1004,46 +1015,82 @@ public class JarnsenMrsSectorTool extends Tool
                 })
                 .create();
 
-        dialog.setOnShowListener(ignored -> dialog.getButton(
-                AlertDialog.BUTTON_POSITIVE
-        ).setOnClickListener(button -> {
-            GeoPoint entered = parseMgrsCoordinate(mgrs);
-            if (entered == null) {
-                return;
-            }
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                    .setOnClickListener(button -> {
+                        ClipboardManager clipboard =
+                                (ClipboardManager) mapView.getContext()
+                                        .getSystemService(
+                                                Context.CLIPBOARD_SERVICE);
+                        if (clipboard == null
+                                || !clipboard.hasPrimaryClip()
+                                || clipboard.getPrimaryClip() == null
+                                || clipboard.getPrimaryClip()
+                                .getItemCount() == 0) {
+                            Toast.makeText(
+                                    mapView.getContext(),
+                                    "Zwischenablage ist leer.",
+                                    Toast.LENGTH_SHORT
+                            ).show();
+                            return;
+                        }
 
-            if (stage == SelectionStage.TARGET
-                    && !isDifferentFromOrigin(entered)) {
-                showSamePointWarning();
-                return;
-            }
+                        CharSequence text = clipboard.getPrimaryClip()
+                                .getItemAt(0)
+                                .coerceToText(mapView.getContext());
+                        if (text != null) {
+                            mgrs.setText(normalizeMgrs(text.toString()));
+                            mgrs.setSelection(mgrs.getText().length());
+                        }
+                    });
 
-            dialog.dismiss();
-            activeDialog = null;
-            GeoPointMetaData point = GeoPointMetaData.wrap(entered);
-            if (stage == SelectionStage.ORIGIN) {
-                setOrigin(point, null);
-                if (editingExistingPoint) {
-                    finishPointEdit();
-                } else {
-                    showPointSourceDialog(SelectionStage.TARGET);
-                }
-            } else {
-                setTarget(point, null);
-                if (editingExistingPoint) {
-                    finishPointEdit();
-                } else {
-                    finishSetup();
-                }
-            }
-        }));
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    .setOnClickListener(button -> {
+                        GeoPoint entered = parseMgrsCoordinate(mgrs);
+                        if (entered == null) {
+                            return;
+                        }
+
+                        if (stage == SelectionStage.TARGET
+                                && !isDifferentFromOrigin(entered)) {
+                            showSamePointWarning();
+                            return;
+                        }
+
+                        String normalized = normalizeMgrs(
+                                mgrs.getText().toString()
+                        );
+                        drawingStore.saveLastMgrs(normalized);
+
+                        dialog.dismiss();
+                        activeDialog = null;
+                        GeoPointMetaData point =
+                                GeoPointMetaData.wrap(entered);
+                        if (stage == SelectionStage.ORIGIN) {
+                            setOrigin(point, null);
+                            if (editingExistingPoint) {
+                                finishPointEdit();
+                            } else {
+                                showPointSourceDialog(
+                                        SelectionStage.TARGET);
+                            }
+                        } else {
+                            setTarget(point, null);
+                            if (editingExistingPoint) {
+                                finishPointEdit();
+                            } else {
+                                finishSetup();
+                            }
+                        }
+                    });
+        });
 
         activeDialog = dialog;
         dialog.show();
     }
 
     private GeoPoint parseMgrsCoordinate(EditText mgrs) {
-        String value = mgrs.getText().toString().trim();
+        String value = normalizeMgrs(mgrs.getText().toString());
         if (value.isEmpty()) {
             Toast.makeText(
                     mapView.getContext(),
@@ -1061,15 +1108,29 @@ public class JarnsenMrsSectorTool extends Tool
             if (!isUsable(point)) {
                 throw new IllegalArgumentException();
             }
+            mgrs.setText(value);
+            mgrs.setSelection(value.length());
             return point;
-        } catch (IllegalArgumentException ignored) {
+        } catch (Exception ignored) {
             Toast.makeText(
                     mapView.getContext(),
-                    "MGRS ungültig. Beispiel: 32U MV 12345 67890",
+                    "MGRS-Koordinate ist nicht gültig.",
                     Toast.LENGTH_SHORT
             ).show();
             return null;
         }
+    }
+
+    private static String normalizeMgrs(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        return value.toUpperCase(Locale.US)
+                .replace(',', ' ')
+                .replace(';', ' ')
+                .trim()
+                .replaceAll("\\s+", " ");
     }
 
     private void showCoordinateDialog(final SelectionStage stage) {
