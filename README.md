@@ -5,8 +5,9 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.2.0** ergänzt eine freie Auswahl von Start- und Zielpunkt; das
-festgelegte Kartenbild bleibt unverändert.
+Version **0.2.1** ergänzt eine freie Auswahl von Start- und Zielpunkt, das
+Bearbeiten und Entfernen per Antippen sowie eine automatisch mittig auf der
+Ziellinie positionierte Klammer.
 
 ### Bedienung
 
@@ -32,11 +33,13 @@ festgelegte Kartenbild bleibt unverändert.
 - volle Kilometer: stärker / durchgezogen
 - Entfernungsbeschriftungen liegen jeweils auf der eigenen Seite vor dem
   zugehörigen Bogen
-- genau **eine** zentrale, um 90° gedrehte `)(`-Klammer bei 4 km
+- genau **eine** zentrale, um 90° gedrehte `)(`-Klammer in der Mitte der
+  Ziellinie
 - an der Klammer:
-  - oben: Richtung in **Str GN**
-  - unten: tatsächliche Entfernung zum Ziel
-- rotes Zielkreuz und Beschriftung **ZIEL**
+  - oben: Bezeichnung und Grundrichtung als **MRS 01  GR xxxx mils**
+  - unten: tatsächliche Entfernung zum Ziel in Metern
+- rotes Zielkreuz ohne dauerhafte Zielbeschriftung
+- beim Antippen der Darstellung wird die Zielkoordinate in **MGRS** angezeigt
 
 ## Gitternord
 
