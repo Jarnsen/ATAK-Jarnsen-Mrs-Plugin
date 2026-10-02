@@ -126,3 +126,15 @@ Der ältere öffentliche `main.jar` aus dem 5.5.1.8-SDK wird ausschließlich als
 Compile-Stub verwendet. Die vom Plugin verwendeten ATAK-APIs wurden zusätzlich
 gegen den offiziellen 5.6.0-Quellstand geprüft. Zur Laufzeit liefert ATAK 5.6.0
 die tatsächlichen Core-Klassen.
+
+
+## Version 0.2.5
+
+- **Schließen** beendet das Werkzeug jetzt explizit über ATAKs Tool-Manager.
+- **Bearbeiten** öffnet ein echtes Bearbeitungsmenü für Startpunkt, Zielpunkt,
+  MGRS-Ziel, Beschriftung und Farbe.
+- Start und Ziel können direkt als **MGRS** eingegeben werden.
+- Die zentrale gedrehte `)(`-Klammer passt ihre Darstellungsgröße automatisch
+  an die aktuelle Karten-Zoomstufe an.
+- Jede Zeichnung erhält eine optionale Beschriftung. Ohne eigene Eingabe wird
+  automatisch fortlaufend `Mrs 1`, `Mrs 2`, ... verwendet.
