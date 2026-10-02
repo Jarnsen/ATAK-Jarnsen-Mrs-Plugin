@@ -839,6 +839,7 @@ public class JarnsenMrsSectorTool extends Tool
                                 "Beschriftung ändern",
                                 "Farbe ändern",
                                 "Darstellung",
+                                "Transparenz ändern",
                                 "Punkte direkt ziehen",
                                 "Zurück",
                                 "Schließen"
@@ -870,8 +871,10 @@ public class JarnsenMrsSectorTool extends Tool
                             } else if (which == 6) {
                                 showDisplaySettingsDialog();
                             } else if (which == 7) {
-                                beginHandleEdit();
+                                showTransparencyDialog();
                             } else if (which == 8) {
+                                beginHandleEdit();
+                            } else if (which == 9) {
                                 showExistingDrawingDialog();
                             } else {
                                 closeTool();
@@ -881,6 +884,117 @@ public class JarnsenMrsSectorTool extends Tool
                 .setOnCancelListener(ignored -> {
                     activeDialog = null;
                     showExistingDrawingDialog();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void showDisplaySettingsDialog() {
+        MrsDrawing d = drawings.get(activeDrawingId);
+        if (d == null) {
+            showEditDrawingDialog();
+            return;
+        }
+
+        String[] labels = {
+                "500-m-Zwischenbögen",
+                "1-km-Bögen",
+                "Entfernungsbeschriftungen",
+                ")(-Klammer",
+                "Zielkreuz",
+                "Sektorfüllung"
+        };
+        boolean[] checked = {
+                d.showHalfKm,
+                d.showKm,
+                d.showRangeLabels,
+                d.showBracket,
+                d.showTargetMarker,
+                d.showFill
+        };
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle(getDrawingLabel() + " – Darstellung")
+                .setMultiChoiceItems(
+                        labels,
+                        checked,
+                        (ignored, which, isChecked) ->
+                                checked[which] = isChecked
+                )
+                .setPositiveButton("Übernehmen", (ignored, which) -> {
+                    activeDialog = null;
+                    pushUndoState();
+                    d.showHalfKm = checked[0];
+                    d.showKm = checked[1];
+                    d.showRangeLabels = checked[2];
+                    d.showBracket = checked[3];
+                    d.showTargetMarker = checked[4];
+                    d.showFill = checked[5];
+                    d.updatedAt = System.currentTimeMillis();
+                    drawingStore.save(drawings.values());
+                    redraw();
+                    showEditDrawingDialog();
+                })
+                .setNegativeButton("Abbrechen", (ignored, which) -> {
+                    activeDialog = null;
+                    showEditDrawingDialog();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void showTransparencyDialog() {
+        MrsDrawing d = drawings.get(activeDrawingId);
+        if (d == null) {
+            showEditDrawingDialog();
+            return;
+        }
+
+        final int[] percentages = {15, 30, 50, 70};
+        String[] labels = {"15 %", "30 %", "50 %", "70 %"};
+
+        int currentPercent = Math.round(
+                Color.alpha(d.fillColor) * 100.0f / 255.0f
+        );
+        int selected = 0;
+        int bestDistance = Integer.MAX_VALUE;
+        for (int i = 0; i < percentages.length; i++) {
+            int distance = Math.abs(percentages[i] - currentPercent);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                selected = i;
+            }
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle(getDrawingLabel() + " – Transparenz")
+                .setSingleChoiceItems(labels, selected, (ignored, which) -> {
+                    activeDialog = null;
+                    pushUndoState();
+                    int alpha = Math.round(
+                            percentages[which] * 255.0f / 100.0f
+                    );
+                    d.fillColor = Color.argb(
+                            alpha,
+                            Color.red(d.fillColor),
+                            Color.green(d.fillColor),
+                            Color.blue(d.fillColor)
+                    );
+                    d.fillAlpha = alpha;
+                    d.updatedAt = System.currentTimeMillis();
+                    sectorFillColor = d.fillColor;
+                    drawingStore.save(drawings.values());
+                    redraw();
+                    ignored.dismiss();
+                    showEditDrawingDialog();
+                })
+                .setNegativeButton("Abbrechen", (ignored, which) -> {
+                    activeDialog = null;
+                    showEditDrawingDialog();
                 })
                 .create();
 
