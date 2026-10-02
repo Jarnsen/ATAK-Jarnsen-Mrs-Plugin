@@ -1,0 +1,62 @@
+name: Publish certified v0.2.4
+
+on:
+  push:
+    branches:
+      - release/v0.2.4-staging
+    paths:
+      - ".release-staging/v0.2.4/**"
+      - ".github/workflows/release-v0.2.4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct certified APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT="/tmp/Jarnsen-Mrs-Plugin-0.2.4-ATAK-5.6.0-TAKgov-SIGNED.apk"
+          cat .release-staging/v0.2.4/part-*.txt | tr -d '\n\r' | base64 -d > "$OUT"
+          echo "APK=$OUT" >> "$GITHUB_ENV"
+
+      - name: Verify certified APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          EXPECTED="855058b201107319e411c59f1cebbfd81d40578744f59df7ce2259af56e90456"
+          ACTUAL="$(sha256sum "$APK" | awk '{print $1}')"
+          echo "SHA-256: $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+          jarsigner -verify -verbose -certs "$APK"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TAG="v0.2.4"
+          TITLE="Jarnsen Mrs Plugin 0.2.4 – ATAK-CIV 5.6.0"
+          TARGET="2f194dee11d03ac3a641631a95d20e1514ce2e12"
+          NOTES=".release-staging/v0.2.4/RELEASE_NOTES.md"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "$APK" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET" \
+              --title "$TITLE" \
+              --notes-file "$NOTES"
+          fi
