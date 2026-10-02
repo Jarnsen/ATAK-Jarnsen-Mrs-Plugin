@@ -544,11 +544,13 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void showWorkspaceMenu() {
         activeDrawingId = null;
+        highlightedDrawingId = null;
         detachEndpointListeners();
         originPoint = null;
         targetPoint = null;
         drawingLabel = null;
         creatingNewDrawing = false;
+        redraw();
 
         int visibleCount = 0;
         for (MrsDrawing drawing : drawings.values()) {
@@ -1251,6 +1253,7 @@ public class JarnsenMrsSectorTool extends Tool
 
         pushUndoState();
         drawings.remove(activeDrawingId);
+        geometryCache.remove(activeDrawingId);
         drawingStore.save(drawings.values());
         activeDrawingId = null;
         creatingNewDrawing = false;
@@ -1271,6 +1274,7 @@ public class JarnsenMrsSectorTool extends Tool
 
         pushUndoState();
         MrsDrawing copy = source.copyAsNew();
+        copy.visible = true;
         copy.label = (source.label == null || source.label.trim().isEmpty())
                 ? "Mrs Kopie"
                 : source.label.trim() + " Kopie";
