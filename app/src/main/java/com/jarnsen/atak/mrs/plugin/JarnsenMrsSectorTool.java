@@ -422,6 +422,326 @@ public class JarnsenMrsSectorTool extends Tool
         }
     }
 
+    private void showWorkspaceMenu() {
+        activeDrawingId = null;
+        detachEndpointListeners();
+        originPoint = null;
+        targetPoint = null;
+        drawingLabel = null;
+        creatingNewDrawing = false;
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Jarnsen Mrs Plugin")
+                .setMessage(
+                        drawings.size() + " gespeicherte Zeichnung"
+                                + (drawings.size() == 1 ? "" : "en")
+                )
+                .setItems(
+                        new String[]{
+                                "Neue Zeichnung",
+                                "Zeichnungen verwalten",
+                                "Rückgängig",
+                                "Wiederholen",
+                                "Diagnose",
+                                "Schließen"
+                        },
+                        (ignored, which) -> {
+                            activeDialog = null;
+                            if (which == 0) {
+                                startNewSetup();
+                            } else if (which == 1) {
+                                showDrawingListDialog();
+                            } else if (which == 2) {
+                                undoWorkspace();
+                            } else if (which == 3) {
+                                redoWorkspace();
+                            } else if (which == 4) {
+                                showDiagnosticsDialog();
+                            } else {
+                                closeTool();
+                            }
+                        }
+                )
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    closeTool();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void showDrawingListDialog() {
+        if (drawings.isEmpty()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Noch keine Zeichnungen vorhanden.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showWorkspaceMenu();
+            return;
+        }
+
+        final List<MrsDrawing> list = new ArrayList<>(drawings.values());
+        CharSequence[] labels = new CharSequence[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            MrsDrawing d = list.get(i);
+            labels[i] = (d.label == null || d.label.trim().isEmpty()
+                    ? "Mrs"
+                    : d.label.trim())
+                    + "  ·  "
+                    + CoordinateFormatUtilities.formatToString(
+                            d.targetPoint().get(),
+                            CoordinateFormat.MGRS
+                    );
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Zeichnungen")
+                .setItems(labels, (ignored, which) -> {
+                    activeDialog = null;
+                    loadDrawingForEdit(list.get(which).id);
+                    showExistingDrawingDialog();
+                })
+                .setNegativeButton("Zurück", (ignored, which) -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void loadDrawingForEdit(String drawingId) {
+        MrsDrawing d = drawings.get(drawingId);
+        if (d == null) {
+            return;
+        }
+
+        detachEndpointListeners();
+        activeDrawingId = d.id;
+        creatingNewDrawing = false;
+        drawingLabel = d.label;
+        sectorFillColor = d.fillColor;
+        originIsSelfSelection = d.originSelf;
+        targetIsSelfSelection = d.targetSelf;
+
+        attachSelfListener();
+
+        if (d.originSelf
+                && selfMarker != null
+                && isUsable(selfMarker.getPoint())) {
+            originItem = selfMarker;
+            originPoint = selfMarker.getGeoPointMetaData();
+        } else {
+            originItem = null;
+            originPoint = d.originPoint();
+        }
+
+        if (d.targetSelf
+                && selfMarker != null
+                && isUsable(selfMarker.getPoint())) {
+            targetItem = selfMarker;
+            targetPoint = selfMarker.getGeoPointMetaData();
+        } else {
+            targetItem = null;
+            targetPoint = d.targetPoint();
+        }
+
+        redraw();
+    }
+
+    private MrsDrawing drawingFromEditor(String requestedId) {
+        String id = requestedId;
+        MrsDrawing existing = id == null ? null : drawings.get(id);
+        MrsDrawing d = existing == null
+                ? new MrsDrawing()
+                : existing.copy();
+
+        if (originPoint == null || targetPoint == null
+                || !isUsable(originPoint.get())
+                || !isUsable(targetPoint.get())) {
+            return null;
+        }
+
+        GeoPoint origin = originPoint.get();
+        GeoPoint target = targetPoint.get();
+
+        d.label = getDrawingLabel();
+        d.originLat = origin.getLatitude();
+        d.originLon = origin.getLongitude();
+        d.targetLat = target.getLatitude();
+        d.targetLon = target.getLongitude();
+        d.originSelf = originIsSelfSelection;
+        d.targetSelf = targetIsSelfSelection;
+        d.fillColor = sectorFillColor;
+        d.fillAlpha = Color.alpha(sectorFillColor);
+        d.updatedAt = System.currentTimeMillis();
+        return d;
+    }
+
+    private void commitEditorToWorkspace() {
+        MrsDrawing d = drawingFromEditor(activeDrawingId);
+        if (d == null) {
+            return;
+        }
+
+        if (activeDrawingId == null) {
+            activeDrawingId = d.id;
+        }
+
+        drawings.put(activeDrawingId, d);
+        creatingNewDrawing = false;
+        drawingStore.save(drawings.values());
+        redraw();
+    }
+
+    private void pushUndoState() {
+        String snapshot = drawingStore.snapshot(drawings.values());
+        if (!undoStates.isEmpty() && snapshot.equals(undoStates.peekLast())) {
+            return;
+        }
+
+        undoStates.addLast(snapshot);
+        while (undoStates.size() > MAX_UNDO_STATES) {
+            undoStates.removeFirst();
+        }
+        redoStates.clear();
+    }
+
+    private void restoreWorkspaceSnapshot(String snapshot) {
+        drawings.clear();
+        for (MrsDrawing d : drawingStore.restore(snapshot)) {
+            drawings.put(d.id, d);
+        }
+
+        activeDrawingId = null;
+        creatingNewDrawing = false;
+        detachEndpointListeners();
+        originPoint = null;
+        targetPoint = null;
+        drawingLabel = null;
+        drawingStore.save(drawings.values());
+        redraw();
+    }
+
+    private void undoWorkspace() {
+        if (undoStates.isEmpty()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Nichts zum Rückgängigmachen.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showWorkspaceMenu();
+            return;
+        }
+
+        redoStates.addLast(drawingStore.snapshot(drawings.values()));
+        String previous = undoStates.removeLast();
+        restoreWorkspaceSnapshot(previous);
+        showWorkspaceMenu();
+    }
+
+    private void redoWorkspace() {
+        if (redoStates.isEmpty()) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Nichts zum Wiederholen.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showWorkspaceMenu();
+            return;
+        }
+
+        undoStates.addLast(drawingStore.snapshot(drawings.values()));
+        String next = redoStates.removeLast();
+        restoreWorkspaceSnapshot(next);
+        showWorkspaceMenu();
+    }
+
+    private void deleteActiveDrawing() {
+        if (activeDrawingId == null || !drawings.containsKey(activeDrawingId)) {
+            showWorkspaceMenu();
+            return;
+        }
+
+        pushUndoState();
+        drawings.remove(activeDrawingId);
+        drawingStore.save(drawings.values());
+        activeDrawingId = null;
+        creatingNewDrawing = false;
+        detachEndpointListeners();
+        originPoint = null;
+        targetPoint = null;
+        drawingLabel = null;
+        removeEditHandles();
+        redraw();
+        showWorkspaceMenu();
+    }
+
+    private void duplicateActiveDrawing() {
+        MrsDrawing source = drawings.get(activeDrawingId);
+        if (source == null) {
+            return;
+        }
+
+        pushUndoState();
+        MrsDrawing copy = source.copyAsNew();
+        copy.label = (source.label == null || source.label.trim().isEmpty())
+                ? "Mrs Kopie"
+                : source.label.trim() + " Kopie";
+        drawings.put(copy.id, copy);
+        drawingStore.save(drawings.values());
+        loadDrawingForEdit(copy.id);
+        showExistingDrawingDialog();
+    }
+
+    private void showDiagnosticsDialog() {
+        String atakVersion = "unbekannt";
+        try {
+            atakVersion = mapView.getContext()
+                    .getPackageManager()
+                    .getPackageInfo("com.atakmap.app", 0)
+                    .versionName;
+        } catch (Exception ignored) {
+        }
+
+        String message =
+                "Plugin: " + BuildConfig.VERSION_NAME
+                        + "\nATAK installiert: " + atakVersion
+                        + "\nATAK Ziel-API: 5.6.0 CIV"
+                        + "\nZeichnungen: " + drawings.size()
+                        + "\nUndo/Redo: " + undoStates.size()
+                        + "/" + redoStates.size()
+                        + "\nMax. Reichweite: 8 km (fest)"
+                        + "\nLetzte MGRS: "
+                        + (drawingStore.getLastMgrs().isEmpty()
+                        ? "—"
+                        : drawingStore.getLastMgrs());
+
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle("Jarnsen Mrs Diagnose")
+                .setMessage(message)
+                .setPositiveButton("OK", (ignored, which) -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    showWorkspaceMenu();
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
     private void showPointSourceDialog(final SelectionStage stage) {
         final String pointName = stage == SelectionStage.ORIGIN
                 ? "Startpunkt"
