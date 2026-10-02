@@ -279,11 +279,13 @@ public class JarnsenMrsSectorTool extends Tool
         }
 
         boolean matches(GeoPoint own, double currentBearing) {
+            double delta = Math.abs(
+                    normalizeDegrees(bearing - currentBearing)
+            );
+            delta = Math.min(delta, 360.0 - delta);
             return Math.abs(originLat - own.getLatitude()) < 1e-9
                     && Math.abs(originLon - own.getLongitude()) < 1e-9
-                    && Math.abs(
-                    normalizeDegrees(bearing - currentBearing)
-            ) < 1e-7;
+                    && delta < 1e-7;
         }
     }
 
