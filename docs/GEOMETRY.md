@@ -13,7 +13,7 @@
 | volle Kilometer | stärker / durchgezogen |
 | 500-m-Zwischenringe | dünner / gestrichelt |
 | Sektor-Maximum | 8000 m |
-| zentrale Klammer | 4000 m |
+| zentrale Klammer | Mitte zwischen Start und Ziel |
 
 ## Bezugssystem
 
@@ -39,11 +39,17 @@ gestrichelt dargestellt.
 
 ## Klammer
 
-Die Klammer wird nur einmal gezeichnet. Sie liegt bei 4 km auf der Mittellinie
-und besteht aus zwei gegeneinander geöffneten Kurven ober- und unterhalb der
-Linie. Damit entspricht sie dem besprochenen, um 90° gedrehten `)(`.
+Die Klammer wird nur einmal gezeichnet. Sie liegt immer genau auf dem
+geometrischen Mittelpunkt der Ziellinie zwischen Start und Ziel und besteht aus
+zwei gegeneinander geöffneten Kurven ober- und unterhalb der Linie. Damit
+entspricht sie dem besprochenen, um 90° gedrehten `)(`. Ändert sich Start oder
+Ziel, wird ihre Position automatisch neu berechnet.
 
 Direkt danach werden entlang der Mittellinie ausgerichtet dargestellt:
 
-- oberhalb: `xxxx Str GN`
-- unterhalb: aktuelle Zielentfernung
+- oberhalb: `MRS 01  GR xxxx mils`
+- unterhalb: aktuelle Zielentfernung in Metern
+
+Das Zielkreuz besitzt keine dauerhafte Textbeschriftung. Beim Antippen der
+Darstellung wird die aktuelle Zielkoordinate im MGRS-Format im Aktionsdialog
+angezeigt.
