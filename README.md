@@ -12,6 +12,76 @@ Start und Ziel können per Karte, MGRS oder Breite/Länge gesetzt werden. Für
 bestehende Zeichnungen stehen direkte Drag-Griffe sowie Rückgängig/Wiederholen
 zur Verfügung.
 
+## Funktionen im Überblick
+
+- **Start und Ziel flexibel setzen:** eigene Position, ATAK-Marker, Kartenpunkt,
+  MGRS oder Breite/Länge.
+- **Sofortige Kartendarstellung:** Mittellinie, Grundrichtung in Gitternord,
+  Sektorgrenzen, Zielkreuz und Entfernungsbögen.
+- **Feste MRS-Geometrie:** ±600 Strich um die Mittellinie, maximal 8 km Tiefe,
+  Bögen alle 500 m und verstärkte volle Kilometer.
+- **Mehrere Zeichnungen verwalten:** benennen, duplizieren, bearbeiten,
+  ein-/ausblenden und löschen.
+- **Darstellung je Zeichnung anpassen:** Farbe, Transparenz, 500-m-Bögen,
+  1-km-Bögen, Beschriftungen, Klammer, Zielkreuz und Sektorfüllung.
+- **Direkt auf der Karte bearbeiten:** Start- und Zielgriff ziehen, Live-Vorschau
+  sehen und Änderungen mit Rückgängig/Wiederholen korrigieren.
+- **Dynamische Bezugspunkte:** Bei eigener Position oder einem beweglichen
+  ATAK-Marker wird die Zeichnung automatisch neu berechnet.
+- **Dauerhafte Arbeitsstände:** Zeichnungen und bis zu zehn Undo-/Redo-Zustände
+  bleiben nach einem ATAK-Neustart erhalten.
+- **Datenaustausch und Diagnose:** JSON-Import/-Export sowie Diagnoseausgabe mit
+  Plugin-Version, Zertifikat, Cache- und Zeichnungsstatus.
+
+## Realistische Einsatzbeispiele
+
+### Beispiel 1 – Fester Startpunkt und Ziel auf der Karte
+
+1. **Neue Zeichnung** öffnen und beispielsweise **MRS 01** nennen.
+2. Den bekannten Standort als Startpunkt auf der Karte setzen.
+3. Einen vorhandenen ATAK-Zielmarker als Ziel auswählen.
+4. ATAK zeigt unmittelbar die Mittellinie, die berechnete Grundrichtung in
+   NATO-Strich, die Entfernung zum Ziel und den vollständigen 8-km-Sektor.
+5. Die 500-m- und 1-km-Bögen helfen dabei, Entfernungen auf der Karte schnell
+   räumlich einzuordnen.
+
+Eine mögliche Anzeige lautet zum Beispiel **MRS 01 – GR 1234 mils** und
+**Entfernung 4.350 m**. Das sind nur Beispielwerte; Richtung und Entfernung
+werden immer aus den tatsächlich gewählten Punkten berechnet.
+
+### Beispiel 2 – Beweglicher Bezugspunkt
+
+Als Start kann **Eigene Position** verwendet werden. Wird anschließend ein
+beweglicher ATAK-Marker als Ziel gewählt, folgt die Zeichnung den
+Positionsänderungen: Grundrichtung, Mittellinie und Entfernung werden
+automatisch aktualisiert. Dadurch muss die Darstellung bei einer
+Lageänderung nicht vollständig neu angelegt werden.
+
+### Beispiel 3 – Mehrere vorbereitete Räume
+
+Für verschiedene Aufträge können mehrere Zeichnungen parallel gespeichert
+werden, zum Beispiel:
+
+- **MRS 01 / Nord** in Gelb
+- **MRS 02 / Ost** in Rot
+- **Ausweichstellung** in Blau
+
+Nicht benötigte Zeichnungen lassen sich einzeln oder mit **Alle ausblenden**
+aus der Karte nehmen und später wieder einblenden. Eine bestehende Zeichnung
+kann dupliziert und anschließend über die farbigen Start-/Zielgriffe angepasst
+werden.
+
+### Beispiel 4 – Koordinate übernehmen
+
+Eine kompakte Eingabe wie `32UMV1234567890` wird erkannt und vor dem
+Übernehmen in eine lesbare MGRS-Schreibweise gebracht. So kann eine über Funk
+oder Chat erhaltene Koordinate schnell geprüft und als Start oder Ziel
+verwendet werden.
+
+> **Wichtig:** Das Plugin ist eine Karten- und Planungsdarstellung. Es ersetzt
+> keine Feuerleit- oder Ballistiksoftware und berechnet weder Ladung,
+> Rohrerhöhung, Wetter-/Munitionskorrekturen noch Sicherheitsfreigaben.
+
 ### Bedienung
 
 1. In ATAK das Werkzeug **Jarnsen Mrs Plugin** antippen.
