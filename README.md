@@ -1,26 +1,37 @@
 # Jarnsen Mrs Plugin
 
-ATAK-CIV Plugin für eine einfache Mörser-/Richtungsdarstellung vom eigenen
-Standort zu einem ausgewählten Kartenpunkt.
+ATAK-CIV Plugin für eine einfache Mörser-/Richtungsdarstellung zwischen einem
+frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.1.0** ist die erste Implementierung des gemeinsam festgelegten
-Kartenbildes.
+Version **0.2.4** ergänzt eine freie Auswahl von Start- und Zielpunkt, das
+Bearbeiten und Entfernen per Antippen sowie eine automatisch mittig auf der
+Ziellinie positionierte Klammer und eine Live-Vorschau beim Verschieben des
+Ziels auf der Karte. Beim Abschluss kann die Sektorfläche schnell eingefärbt
+werden. Das transparente Werkzeugleisten-Icon zeigt das vereinfachte
+Mörserzeichen mit Kreis, Mittellinie, Pfeil und drei Querstrichen.
 
 ### Bedienung
 
 1. In ATAK das Werkzeug **Jarnsen Mrs Plugin** antippen.
-2. Einen vorhandenen Punkt/Marker oder eine freie Stelle auf der Karte antippen.
-3. Das Plugin zeichnet den Sektor vom eigenen ATAK-Self-Marker zum gewählten
-   Ziel.
-4. Bewegt sich der eigene Standort, wird die Darstellung automatisch neu
-   berechnet. Wird ein beweglicher ATAK-Punkt als Ziel gewählt, folgt die
-   Darstellung auch diesem Ziel.
+2. Den Startpunkt wählen: **Eigene Position**, **Koordinaten eingeben** oder
+   **Auf der Karte wählen**.
+3. Den Zielpunkt auf die gleiche Weise wählen.
+   Bei **Auf der Karte wählen** wird die Darstellung bereits beim Berühren
+   aufgebaut, beim Ziehen live nachgeführt und erst beim Loslassen festgelegt.
+4. Das Plugin zeichnet den Sektor vom gewählten Start zum gewählten Ziel.
+5. Optional eine Sektorfarbe auswählen: **Weiß, Rot, Gelb, Blau, Grün** oder
+   **Schwarz**. Mit **Standard** oder durch Schließen der Auswahl bleibt
+   die bisherige Standardfarbe erhalten.
+6. Wird die eigene Position oder ein beweglicher ATAK-Marker verwendet, wird
+   die Darstellung bei Positionsänderungen automatisch neu berechnet.
+7. Die eingezeichnete Darstellung oder das Plugin-Symbol antippen. Im Menü kann
+   sie **Bearbeitet** (Start und Ziel neu wählen) oder **Entfernt** werden.
 
 ## Darstellung
 
-- Mittellinie: eigener Standort → ausgewähltes Ziel
+- Mittellinie: ausgewählter Startpunkt → ausgewähltes Ziel
 - Richtung: **Gitternord**
 - Winkelmaß: **NATO 6400 Strich**
 - Sektor: **±600 Strich** um die Mittellinie
@@ -28,13 +39,17 @@ Kartenbildes.
 - Entfernungsbögen alle **500 m**
 - 500-m-Zwischenbögen: dünner / gestrichelt
 - volle Kilometer: stärker / durchgezogen
+- optionale transparente Sektorschattierung in Weiß, Rot, Gelb, Blau, Grün
+  oder Schwarz
 - Entfernungsbeschriftungen liegen jeweils auf der eigenen Seite vor dem
   zugehörigen Bogen
-- genau **eine** zentrale, um 90° gedrehte `)(`-Klammer bei 4 km
+- genau **eine** zentrale, um 90° gedrehte `)(`-Klammer in der Mitte der
+  Ziellinie
 - an der Klammer:
-  - oben: Richtung in **Str GN**
-  - unten: tatsächliche Entfernung zum Ziel
-- rotes Zielkreuz und Beschriftung **ZIEL**
+  - oben: Bezeichnung und Grundrichtung als **MRS 01  GR xxxx mils**
+  - unten: tatsächliche Entfernung zum Ziel in Metern
+- rotes Zielkreuz ohne dauerhafte Zielbeschriftung
+- beim Antippen der Darstellung wird die Zielkoordinate in **MGRS** angezeigt
 
 ## Gitternord
 

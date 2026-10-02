@@ -1,6 +1,6 @@
 # Geometrie des Jarnsen Mrs Plugin
 
-## Feste Werte der ersten Version
+## Feste Geometriewerte
 
 | Wert | Einstellung |
 |---|---:|
@@ -13,17 +13,30 @@
 | volle Kilometer | stärker / durchgezogen |
 | 500-m-Zwischenringe | dünner / gestrichelt |
 | Sektor-Maximum | 8000 m |
-| zentrale Klammer | 4000 m |
+| zentrale Klammer | Mitte zwischen Start und Ziel |
+| Flächenfarbe | Standard oder Weiß, Rot, Gelb, Blau, Grün, Schwarz |
 
 ## Bezugssystem
 
-Der Kartenpunkt wird geodätisch vom Self-Marker aus berechnet. Die
-Sektorgeometrie benutzt den True-Bearing zum Ziel. Das ist korrekt, weil die
-Öffnung von ±600 Strich relativ zur Mittellinie definiert ist.
+Die Kartenpunkte werden geodätisch vom gewählten Startpunkt aus berechnet. Der
+Start- und Zielpunkt kann jeweils die eigene Position, eine eingegebene
+Dezimalgrad-Koordinate oder ein Punkt auf der Karte sein. Die Sektorgeometrie
+benutzt den True-Bearing vom Start zum Ziel. Das ist korrekt, weil die Öffnung
+von ±600 Strich relativ zur Mittellinie definiert ist.
+
+Bei der Zielauswahl auf der Karte wird die komplette Darstellung ab dem
+Berühren live aufgebaut. Während des Ziehens werden Ziellinie, Klammer,
+Grundrichtung, Entfernung und Zielkoordinate fortlaufend neu berechnet; erst
+beim Loslassen wird die Zielposition übernommen.
+
+Nach der Zielauswahl erscheint eine Farbschnellauswahl. Eine ausgewählte Farbe
+wird mit transparenter Deckkraft als Sektorschattierung verwendet. Wird die
+Auswahl geschlossen oder **Standard** gewählt, bleibt die bisherige
+Standarddarstellung erhalten.
 
 Die sichtbare Richtungsangabe wird auf Gitternord umgerechnet:
 
-1. True-Bearing Self → Ziel
+1. True-Bearing Start → Ziel
 2. ATAK Grid Convergence bestimmen
 3. Grid-Bearing = True-Bearing - Grid Convergence
 4. Grid-Bearing auf 0…360° normalisieren
@@ -37,11 +50,17 @@ gestrichelt dargestellt.
 
 ## Klammer
 
-Die Klammer wird nur einmal gezeichnet. Sie liegt bei 4 km auf der Mittellinie
-und besteht aus zwei gegeneinander geöffneten Kurven ober- und unterhalb der
-Linie. Damit entspricht sie dem besprochenen, um 90° gedrehten `)(`.
+Die Klammer wird nur einmal gezeichnet. Sie liegt immer genau auf dem
+geometrischen Mittelpunkt der Ziellinie zwischen Start und Ziel und besteht aus
+zwei gegeneinander geöffneten Kurven ober- und unterhalb der Linie. Damit
+entspricht sie dem besprochenen, um 90° gedrehten `)(`. Ändert sich Start oder
+Ziel, wird ihre Position automatisch neu berechnet.
 
 Direkt danach werden entlang der Mittellinie ausgerichtet dargestellt:
 
-- oberhalb: `xxxx Str GN`
-- unterhalb: aktuelle Zielentfernung
+- oberhalb: `MRS 01  GR xxxx mils`
+- unterhalb: aktuelle Zielentfernung in Metern
+
+Das Zielkreuz besitzt keine dauerhafte Textbeschriftung. Beim Antippen der
+Darstellung wird die aktuelle Zielkoordinate im MGRS-Format im Aktionsdialog
+angezeigt.
