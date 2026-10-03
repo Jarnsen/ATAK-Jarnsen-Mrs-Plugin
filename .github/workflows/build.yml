@@ -121,19 +121,20 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          gradle --no-daemon --stacktrace :app:assembleCivRelease
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --stacktrace :app:assembleCivRelease
 
       - name: Run JVM regression tests
         shell: bash
         run: |
           set -euxo pipefail
-          gradle --no-daemon --stacktrace :app:testCivReleaseUnitTest
+          ./gradlew --no-daemon --stacktrace :app:testCivReleaseUnitTest
 
       - name: Lint ATAK plugin
         shell: bash
         run: |
           set -euxo pipefail
-          gradle --no-daemon --stacktrace :app:lintCivRelease
+          ./gradlew --no-daemon --stacktrace :app:lintCivRelease
 
       - name: Verify release APK signature
         shell: bash
@@ -165,20 +166,31 @@ jobs:
           SOURCE_ZIP="Jarnsen-Mrs-Plugin-${VERSION}-TAKgov-Source.zip"
           SOURCE_SHA_FILE="${SOURCE_ZIP}.sha256"
           SOURCE_LIST="${RUNNER_TEMP}/takgov-source-files.txt"
+          ROOT_DIR="Jarnsen-Mrs-Plugin"
 
           # Build the upload strictly from tracked Git content. This keeps local
-          # SDK files, build outputs, signing material and .git data out.
-          git archive --format=zip --output="$SOURCE_ZIP" HEAD
+          # SDK files, build outputs, signing material and .git data out. TAK.gov
+          # requires exactly one project folder at the archive root.
+          git archive --format=zip --prefix="${ROOT_DIR}/" --output="$SOURCE_ZIP" HEAD
           unzip -t "$SOURCE_ZIP"
           unzip -Z1 "$SOURCE_ZIP" > "$SOURCE_LIST"
 
+          # Every archive member must live below the single project root.
+          if grep -Ev "^${ROOT_DIR}/" "$SOURCE_LIST"; then
+            echo "::error::TAK.gov archive contains entries outside the single project root"
+            exit 1
+          fi
+
           # TAK.gov needs the actual source project, not an already-built APK.
           for required in \
-            README.md \
-            build.gradle \
-            settings.gradle \
-            app/build.gradle \
-            app/src/main/AndroidManifest.xml
+            "${ROOT_DIR}/README.md" \
+            "${ROOT_DIR}/build.gradle" \
+            "${ROOT_DIR}/settings.gradle" \
+            "${ROOT_DIR}/gradlew" \
+            "${ROOT_DIR}/gradle/wrapper/gradle-wrapper.jar" \
+            "${ROOT_DIR}/gradle/wrapper/gradle-wrapper.properties" \
+            "${ROOT_DIR}/app/build.gradle" \
+            "${ROOT_DIR}/app/src/main/AndroidManifest.xml"
           do
             grep -Fxq "$required" "$SOURCE_LIST"
           done
