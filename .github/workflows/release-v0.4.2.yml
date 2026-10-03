@@ -5,8 +5,7 @@ on:
     branches:
       - release/v0.4.2-staging
     paths:
-      - ".release-staging/v0.4.2/**"
-      - ".github/workflows/release-v0.4.2.yml"
+      - ".release-staging/v0.4.2/READY"
   workflow_dispatch:
 
 permissions:
