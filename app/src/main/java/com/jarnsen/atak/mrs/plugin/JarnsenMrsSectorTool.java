@@ -65,7 +65,7 @@ import java.util.UUID;
 
 /**
  * Draws the Jarnsen Mrs range sector between two selectable points. Origin and
- * target can each be the ATAK self marker, an entered coordinate, or a point
+ * target can each be the ATAK self marker, an entered MGRS coordinate, or a point
  * selected on the map.
  *
  * Map geometry is generated from the true geodetic bearing. The displayed
@@ -768,6 +768,10 @@ public class JarnsenMrsSectorTool extends Tool
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle("Zeichnungen verwalten")
                 .setView(scroll)
+                .setPositiveButton("Neue Zeichnung", (ignored, which) -> {
+                    activeDialog = null;
+                    startNewSetup();
+                })
                 .setNegativeButton("Zurück", (ignored, which) -> {
                     activeDialog = null;
                     showWorkspaceMenu();
@@ -1542,7 +1546,6 @@ public class JarnsenMrsSectorTool extends Tool
                         new String[]{
                                 "Eigene Position",
                                 "MGRS eingeben",
-                                "Breite/Länge eingeben",
                                 "Auf der Karte wählen"
                         },
                         (ignored, which) -> {
@@ -1551,8 +1554,6 @@ public class JarnsenMrsSectorTool extends Tool
                                 chooseSelfPosition(stage);
                             } else if (which == 1) {
                                 showMgrsCoordinateDialog(stage);
-                            } else if (which == 2) {
-                                showCoordinateDialog(stage);
                             } else {
                                 beginMapSelection(stage);
                             }
@@ -1579,36 +1580,42 @@ public class JarnsenMrsSectorTool extends Tool
                 )
                 .setItems(
                         new String[]{
+                                "Bearbeiten",
+                                "Neue Zeichnung",
                                 "Ziel neu setzen",
                                 "Start neu setzen",
                                 "Punkte direkt ziehen",
-                                "Bearbeiten",
                                 "Kopie erstellen",
                                 "Entfernen",
                                 "Rückgängig",
                                 "Wiederholen",
+                                "Zur Übersicht",
                                 "Schließen"
                         },
                         (ignored, which) -> {
                             activeDialog = null;
                             if (which == 0) {
+                                showEditDrawingDialog();
+                            } else if (which == 1) {
+                                startNewSetup();
+                            } else if (which == 2) {
                                 pushUndoState();
                                 beginEditPoint(SelectionStage.TARGET);
-                            } else if (which == 1) {
+                            } else if (which == 3) {
                                 pushUndoState();
                                 beginEditPoint(SelectionStage.ORIGIN);
-                            } else if (which == 2) {
-                                beginHandleEdit();
-                            } else if (which == 3) {
-                                showEditDrawingDialog();
                             } else if (which == 4) {
-                                duplicateActiveDrawing();
+                                beginHandleEdit();
                             } else if (which == 5) {
-                                confirmDeleteActiveDrawing();
+                                duplicateActiveDrawing();
                             } else if (which == 6) {
-                                undoWorkspace();
+                                confirmDeleteActiveDrawing();
                             } else if (which == 7) {
+                                undoWorkspace();
+                            } else if (which == 8) {
                                 redoWorkspace();
+                            } else if (which == 9) {
+                                showWorkspaceMenu();
                             } else {
                                 closeTool();
                             }
@@ -1616,7 +1623,7 @@ public class JarnsenMrsSectorTool extends Tool
                 )
                 .setOnCancelListener(ignored -> {
                     activeDialog = null;
-                    closeTool();
+                    showWorkspaceMenu();
                 })
                 .create();
 
@@ -2278,121 +2285,6 @@ public class JarnsenMrsSectorTool extends Tool
         return MrsCoreLogic.normalizeMgrsInput(value);
     }
 
-    private void showCoordinateDialog(final SelectionStage stage) {
-        LinearLayout fields = new LinearLayout(mapView.getContext());
-        fields.setOrientation(LinearLayout.VERTICAL);
-        int padding = Math.round(
-                20.0f * mapView.getResources().getDisplayMetrics().density
-        );
-        fields.setPadding(padding, 0, padding, 0);
-
-        EditText latitude = makeCoordinateField(
-                "Breitengrad, z. B. 52.5200"
-        );
-        EditText longitude = makeCoordinateField(
-                "Längengrad, z. B. 13.4050"
-        );
-        fields.addView(latitude, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-        fields.addView(longitude, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-
-        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
-                .setTitle((stage == SelectionStage.ORIGIN
-                        ? "Startpunkt"
-                        : "Zielpunkt") + " – Koordinaten")
-                .setView(fields)
-                .setPositiveButton("Übernehmen", null)
-                .setNegativeButton("Zurück", (ignored, which) -> {
-                    activeDialog = null;
-                    showPointSourceDialog(stage);
-                })
-                .setOnCancelListener(ignored -> {
-                    activeDialog = null;
-                    cancelPointSelection();
-                })
-                .create();
-
-        dialog.setOnShowListener(ignored -> dialog.getButton(
-                AlertDialog.BUTTON_POSITIVE
-        ).setOnClickListener(button -> {
-            GeoPoint entered = parseCoordinate(latitude, longitude);
-            if (entered == null) {
-                return;
-            }
-
-            if (stage == SelectionStage.TARGET
-                    && !isDifferentFromOrigin(entered)) {
-                showSamePointWarning();
-                return;
-            }
-
-            dialog.dismiss();
-            activeDialog = null;
-            GeoPointMetaData point = GeoPointMetaData.wrap(entered);
-            if (stage == SelectionStage.ORIGIN) {
-                setOrigin(point, null);
-                if (editingExistingPoint) {
-                    finishPointEdit();
-                } else {
-                    showPointSourceDialog(SelectionStage.TARGET);
-                }
-            } else {
-                setTarget(point, null);
-                if (editingExistingPoint) {
-                    finishPointEdit();
-                } else {
-                    finishSetup();
-                }
-            }
-        }));
-
-        activeDialog = dialog;
-        dialog.show();
-    }
-
-    private EditText makeCoordinateField(String hint) {
-        EditText field = new EditText(mapView.getContext());
-        field.setHint(hint);
-        field.setSingleLine(true);
-        field.setInputType(
-                InputType.TYPE_CLASS_NUMBER
-                        | InputType.TYPE_NUMBER_FLAG_DECIMAL
-                        | InputType.TYPE_NUMBER_FLAG_SIGNED
-        );
-        return field;
-    }
-
-    private GeoPoint parseCoordinate(EditText latitude, EditText longitude) {
-        try {
-            double lat = Double.parseDouble(
-                    latitude.getText().toString().trim().replace(',', '.')
-            );
-            double lon = Double.parseDouble(
-                    longitude.getText().toString().trim().replace(',', '.')
-            );
-
-            if (lat < -90.0 || lat > 90.0
-                    || lon < -180.0 || lon > 180.0) {
-                throw new NumberFormatException();
-            }
-            return new GeoPoint(lat, lon);
-        } catch (NumberFormatException ignored) {
-            lastDiagnosticError =
-                    "Ungültige Breiten-/Längengrad-Eingabe";
-            Toast.makeText(
-                    mapView.getContext(),
-                    "Bitte gültige Breiten- und Längengrade eingeben.",
-                    Toast.LENGTH_SHORT
-            ).show();
-            return null;
-        }
-    }
-
     private void beginMapSelection(SelectionStage stage) {
         stopMapSelection();
         selectionStage = stage;
@@ -2609,7 +2501,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (closeWhenDone) {
                         pushUndoState();
                         commitEditorToWorkspace();
-                        closeTool();
+                        showExistingDrawingDialog();
                     } else {
                         commitEditorToWorkspace();
                         showExistingDrawingDialog();
@@ -2622,7 +2514,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (closeWhenDone) {
                         pushUndoState();
                         commitEditorToWorkspace();
-                        closeTool();
+                        showExistingDrawingDialog();
                     } else {
                         commitEditorToWorkspace();
                         showExistingDrawingDialog();
@@ -2633,7 +2525,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (closeWhenDone) {
                         pushUndoState();
                         commitEditorToWorkspace();
-                        closeTool();
+                        showExistingDrawingDialog();
                     } else {
                         commitEditorToWorkspace();
                         showExistingDrawingDialog();

@@ -5,17 +5,20 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.4.0** baut den persistenten Arbeitsbereich aus 0.3.0 zu einer
-komfortableren und robusteren Mehrzeichnungs-Verwaltung aus. Zeichnungen bleiben nach einem ATAK-Neustart erhalten,
-können direkt auf der Karte geöffnet, dupliziert, bearbeitet und entfernt werden.
-Start und Ziel können per Karte, MGRS oder Breite/Länge gesetzt werden. Für
-bestehende Zeichnungen stehen direkte Drag-Griffe sowie Rückgängig/Wiederholen
-zur Verfügung.
+Version **0.4.1** macht die Mehrzeichnungs-Verwaltung direkt bedienbar:
+Nach dem Speichern bleibt die neue Zeichnung geöffnet. **Bearbeiten**,
+**Neue Zeichnung** und **Zur Übersicht** sind unmittelbar erreichbar.
+Mehrere Zeichnungen können parallel angelegt, einzeln bearbeitet, dupliziert,
+ein-/ausgeblendet und gelöscht werden.
+
+Start und Ziel werden über **Eigene Position**, einen vorhandenen
+**ATAK-Marker**, **MGRS** oder direkt auf der **Karte** gesetzt.
+Alle manuell eingegebenen Koordinaten sind MGRS.
 
 ## Funktionen im Überblick
 
-- **Start und Ziel flexibel setzen:** eigene Position, ATAK-Marker, Kartenpunkt,
-  MGRS oder Breite/Länge.
+- **Start und Ziel flexibel setzen:** eigene Position, ATAK-Marker, MGRS oder
+  Kartenpunkt. Manuelle Koordinateneingaben erfolgen ausschließlich als MGRS.
 - **Sofortige Kartendarstellung:** Mittellinie, Grundrichtung in Gitternord,
   Sektorgrenzen, Zielkreuz und Entfernungsbögen.
 - **Feste MRS-Geometrie:** ±600 Strich um die Mittellinie, maximal 8 km Tiefe,
@@ -108,7 +111,7 @@ verwendet werden.
 ### Bedienung
 
 1. In ATAK das Werkzeug **Jarnsen Mrs Plugin** antippen.
-2. Den Startpunkt wählen: **Eigene Position**, **Koordinaten eingeben** oder
+2. Den Startpunkt wählen: **Eigene Position**, **MGRS eingeben** oder
    **Auf der Karte wählen**.
 3. Den Zielpunkt auf die gleiche Weise wählen.
    Bei **Auf der Karte wählen** wird die Darstellung bereits beim Berühren
@@ -119,8 +122,11 @@ verwendet werden.
    die bisherige Standardfarbe erhalten.
 6. Wird die eigene Position oder ein beweglicher ATAK-Marker verwendet, wird
    die Darstellung bei Positionsänderungen automatisch neu berechnet.
-7. Die eingezeichnete Darstellung oder das Plugin-Symbol antippen. Im Menü kann
-   sie **Bearbeitet** (Start und Ziel neu wählen) oder **Entfernt** werden.
+7. Nach dem Speichern bleibt die Zeichnung geöffnet. Über **Bearbeiten** können
+   Start, Ziel, MGRS, Beschriftung, Farbe, Darstellung und Transparenz geändert
+   werden.
+8. Mit **Neue Zeichnung** wird eine weitere Zeichnung angelegt; **Zur Übersicht**
+   öffnet die Verwaltung aller gespeicherten Zeichnungen.
 
 ## Darstellung
 
@@ -219,6 +225,15 @@ Compile-Stub verwendet. Die vom Plugin verwendeten ATAK-APIs wurden zusätzlich
 gegen den offiziellen 5.6.0-Quellstand geprüft. Zur Laufzeit liefert ATAK 5.6.0
 die tatsächlichen Core-Klassen.
 
+
+## Version 0.4.1
+
+- nach dem Speichern bleibt die neue Zeichnung geöffnet und sofort bearbeitbar
+- **Bearbeiten**, **Neue Zeichnung** und **Zur Übersicht** direkt im Zeichnungsmenü
+- **Neue Zeichnung** zusätzlich direkt in der Zeichnungsverwaltung
+- Start und Ziel weiterhin über eigene Position, ATAK-Marker, MGRS oder Karte
+- manuelle Koordinateneingabe ausschließlich als MGRS
+- maximale Sektorreichtiefe bleibt fest bei **8 km**
 
 ## Version 0.4.0
 
