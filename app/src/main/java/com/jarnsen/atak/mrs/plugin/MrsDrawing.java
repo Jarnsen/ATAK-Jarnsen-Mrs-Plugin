@@ -22,6 +22,8 @@ final class MrsDrawing {
 
     boolean originSelf;
     boolean targetSelf;
+    String originMarkerUid = "";
+    String targetMarkerUid = "";
 
     int fillColor = DEFAULT_FILL;
     int fillAlpha = 48;
@@ -55,6 +57,8 @@ final class MrsDrawing {
         d.targetLon = targetLon;
         d.originSelf = originSelf;
         d.targetSelf = targetSelf;
+        d.originMarkerUid = originMarkerUid;
+        d.targetMarkerUid = targetMarkerUid;
         d.fillColor = fillColor;
         d.fillAlpha = fillAlpha;
         d.showHalfKm = showHalfKm;
@@ -77,6 +81,8 @@ final class MrsDrawing {
         d.targetLon = targetLon;
         d.originSelf = originSelf;
         d.targetSelf = targetSelf;
+        d.originMarkerUid = originMarkerUid;
+        d.targetMarkerUid = targetMarkerUid;
         d.fillColor = fillColor;
         d.fillAlpha = fillAlpha;
         d.showHalfKm = showHalfKm;
@@ -108,6 +114,8 @@ final class MrsDrawing {
         o.put("targetLon", targetLon);
         o.put("originSelf", originSelf);
         o.put("targetSelf", targetSelf);
+        o.put("originMarkerUid", originMarkerUid == null ? "" : originMarkerUid);
+        o.put("targetMarkerUid", targetMarkerUid == null ? "" : targetMarkerUid);
         o.put("fillColor", fillColor);
         o.put("fillAlpha", fillAlpha);
         o.put("showHalfKm", showHalfKm);
@@ -130,6 +138,8 @@ final class MrsDrawing {
         d.targetLon = o.getDouble("targetLon");
         d.originSelf = o.optBoolean("originSelf", false);
         d.targetSelf = o.optBoolean("targetSelf", false);
+        d.originMarkerUid = o.optString("originMarkerUid", "");
+        d.targetMarkerUid = o.optString("targetMarkerUid", "");
         d.fillColor = o.optInt("fillColor", DEFAULT_FILL);
         d.fillAlpha = o.optInt("fillAlpha", 48);
         d.showHalfKm = o.optBoolean("showHalfKm", true);

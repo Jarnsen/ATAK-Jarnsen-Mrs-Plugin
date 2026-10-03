@@ -5,19 +5,19 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.4.1** macht die Mehrzeichnungs-Verwaltung direkt bedienbar:
+Version **0.4.2** macht die Mehrzeichnungs-Verwaltung direkt bedienbar:
 Nach dem Speichern bleibt die neue Zeichnung geöffnet. **Bearbeiten**,
 **Neue Zeichnung** und **Zur Übersicht** sind unmittelbar erreichbar.
 Mehrere Zeichnungen können parallel angelegt, einzeln bearbeitet, dupliziert,
 ein-/ausgeblendet und gelöscht werden.
 
-Start und Ziel werden über **Eigene Position**, einen vorhandenen
+Start und Ziel werden über **Eigenposition**, einen vorhandenen
 **ATAK-Marker**, **MGRS** oder direkt auf der **Karte** gesetzt.
 Alle manuell eingegebenen Koordinaten sind MGRS.
 
 ## Funktionen im Überblick
 
-- **Start und Ziel flexibel setzen:** eigene Position, ATAK-Marker, MGRS oder
+- **Start und Ziel flexibel setzen:** Eigenposition, ATAK-Marker, MGRS oder
   Kartenpunkt. Manuelle Koordinateneingaben erfolgen ausschließlich als MGRS.
 - **Sofortige Kartendarstellung:** Mittellinie, Grundrichtung in Gitternord,
   Sektorgrenzen, Zielkreuz und Entfernungsbögen.
@@ -29,8 +29,11 @@ Alle manuell eingegebenen Koordinaten sind MGRS.
   1-km-Bögen, Beschriftungen, Klammer, Zielkreuz und Sektorfüllung.
 - **Direkt auf der Karte bearbeiten:** Start- und Zielgriff ziehen, Live-Vorschau
   sehen und Änderungen mit Rückgängig/Wiederholen korrigieren.
-- **Dynamische Bezugspunkte:** Bei eigener Position oder einem beweglichen
-  ATAK-Marker wird die Zeichnung automatisch neu berechnet.
+- **Eigenposition wahlweise fest oder dynamisch:** Bei jeder Auswahl der
+  Eigenposition wird gefragt, ob die Zeichnung ihr folgen soll. Ohne Häkchen
+  bleibt die beim Übernehmen aktuelle Position fest gespeichert.
+- **ATAK-Marker dauerhaft verknüpfen:** Ausgewählte bewegliche Marker werden
+  über ihre UID je Zeichnung gespeichert und nach dem Neustart wiedergefunden.
 - **Dauerhafte Arbeitsstände:** Zeichnungen und bis zu zehn Undo-/Redo-Zustände
   bleiben nach einem ATAK-Neustart erhalten.
 - **Datenaustausch und Diagnose:** JSON-Import/-Export sowie Diagnoseausgabe mit
@@ -77,11 +80,10 @@ werden immer aus den tatsächlich gewählten Punkten berechnet.
 
 ### Beispiel 2 – Beweglicher Bezugspunkt
 
-Als Start kann **Eigene Position** verwendet werden. Wird anschließend ein
-beweglicher ATAK-Marker als Ziel gewählt, folgt die Zeichnung den
-Positionsänderungen: Grundrichtung, Mittellinie und Entfernung werden
-automatisch aktualisiert. Dadurch muss die Darstellung bei einer
-Lageänderung nicht vollständig neu angelegt werden.
+Als Start kann **Eigenposition** verwendet werden. Dabei entscheidet die Option
+**Eigenposition folgen**, ob die Zeichnung späteren Positionsänderungen folgt.
+Ohne Häkchen bleibt die beim Übernehmen aktuelle Position als fester Punkt
+gespeichert.
 
 ### Beispiel 3 – Mehrere vorbereitete Räume
 
@@ -111,7 +113,7 @@ verwendet werden.
 ### Bedienung
 
 1. In ATAK das Werkzeug **Jarnsen Mrs Plugin** antippen.
-2. Den Startpunkt wählen: **Eigene Position**, **MGRS eingeben** oder
+2. Den Startpunkt wählen: **Eigenposition**, **MGRS eingeben** oder
    **Auf der Karte wählen**.
 3. Den Zielpunkt auf die gleiche Weise wählen.
    Bei **Auf der Karte wählen** wird die Darstellung bereits beim Berühren
@@ -120,8 +122,8 @@ verwendet werden.
 5. Optional eine Sektorfarbe auswählen: **Weiß, Rot, Gelb, Blau, Grün** oder
    **Schwarz**. Mit **Standard** oder durch Schließen der Auswahl bleibt
    die bisherige Standardfarbe erhalten.
-6. Wird die eigene Position oder ein beweglicher ATAK-Marker verwendet, wird
-   die Darstellung bei Positionsänderungen automatisch neu berechnet.
+6. Bei **Eigenposition** festlegen, ob **Eigenposition folgen** aktiviert wird.
+   Nur mit Häkchen wird die Darstellung bei Positionsänderungen neu berechnet.
 7. Nach dem Speichern bleibt die Zeichnung geöffnet. Über **Bearbeiten** können
    Start, Ziel, MGRS, Beschriftung, Farbe, Darstellung und Transparenz geändert
    werden.
@@ -226,12 +228,23 @@ gegen den offiziellen 5.6.0-Quellstand geprüft. Zur Laufzeit liefert ATAK 5.6.0
 die tatsächlichen Core-Klassen.
 
 
+## Version 0.4.2
+
+- Abfrage **Eigenposition folgen** bei jeder Auswahl der Eigenposition
+- ohne Häkchen wird die aktuelle Eigenposition als fester Punkt gespeichert
+- mit Häkchen folgt nur der betreffende Start- oder Zielpunkt der Eigenposition
+- Folgestatus wird im Zeichnungsdialog eindeutig angezeigt
+- bewegliche ATAK-Marker werden dauerhaft über ihre UID je Zeichnung verknüpft
+- abgebrochene Punkt- oder Griffbearbeitungen erzeugen keinen leeren Undo-Schritt
+- manuelle Koordinateneingabe weiterhin ausschließlich als MGRS
+- maximale Sektorreichtiefe bleibt fest bei **8 km**
+
 ## Version 0.4.1
 
 - nach dem Speichern bleibt die neue Zeichnung geöffnet und sofort bearbeitbar
 - **Bearbeiten**, **Neue Zeichnung** und **Zur Übersicht** direkt im Zeichnungsmenü
 - **Neue Zeichnung** zusätzlich direkt in der Zeichnungsverwaltung
-- Start und Ziel weiterhin über eigene Position, ATAK-Marker, MGRS oder Karte
+- Start und Ziel weiterhin über Eigenposition, ATAK-Marker, MGRS oder Karte
 - manuelle Koordinateneingabe ausschließlich als MGRS
 - maximale Sektorreichtiefe bleibt fest bei **8 km**
 
@@ -276,4 +289,3 @@ die tatsächlichen Core-Klassen.
 - Diagnoseansicht mit ATAK-/Plugin-Version, Signaturstatus, Zeichnungszahl,
   Undo/Redo-Stand und letzter fehlerhafter Eingabe
 - maximale Sektorreichtiefe bleibt bewusst **fest bei 8 km**
-

@@ -5,7 +5,9 @@ import org.junit.Test;
 import java.util.Arrays;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 public class MrsHistoryTest {
 
@@ -43,5 +45,14 @@ public class MrsHistoryTest {
         );
         assertEquals(2, history.undoSize());
         assertEquals(1, history.redoSize());
+    }
+
+    @Test
+    public void cancelledEditDiscardsUnchangedUndoSnapshot() {
+        MrsHistory history = new MrsHistory(10);
+        assertTrue(history.push("current"));
+        assertTrue(history.discardLastUndoIfEquals("current"));
+        assertEquals(0, history.undoSize());
+        assertFalse(history.discardLastUndoIfEquals("current"));
     }
 }

@@ -144,6 +144,8 @@ public class JarnsenMrsSectorTool extends Tool
                     return size() > 32;
                 }
             };
+    private final LinkedHashMap<String, PointMapItem> linkedMarkerItems =
+            new LinkedHashMap<>();
 
     private boolean selectionActive;
     private boolean targetDragMoved;
@@ -159,6 +161,8 @@ public class JarnsenMrsSectorTool extends Tool
     private boolean creatingNewDrawing;
     private boolean originIsSelfSelection;
     private boolean targetIsSelfSelection;
+    private String originMarkerUid;
+    private String targetMarkerUid;
     private boolean handleDragMode;
     private Marker originHandle;
     private Marker targetHandle;
@@ -302,6 +306,7 @@ public class JarnsenMrsSectorTool extends Tool
                 drawingStore.loadUndoHistory(),
                 drawingStore.loadRedoHistory()
         );
+        refreshLinkedMarkerListeners();
 
         ToolManagerBroadcastReceiver.getInstance().registerTool(
                 TOOL_IDENTIFIER,
@@ -336,6 +341,7 @@ public class JarnsenMrsSectorTool extends Tool
     @Override
     public void onToolEnd() {
         stopMapSelection();
+        discardNoOpUndoState();
         removeEditHandles();
 
         if (activeDialog != null) {
@@ -495,6 +501,10 @@ public class JarnsenMrsSectorTool extends Tool
         }
 
         detachEndpointListeners();
+        for (PointMapItem marker : linkedMarkerItems.values()) {
+            marker.removeOnPointChangedListener(this);
+        }
+        linkedMarkerItems.clear();
 
         if (selfMarker != null) {
             selfMarker.removeOnPointChangedListener(this);
@@ -1028,6 +1038,7 @@ public class JarnsenMrsSectorTool extends Tool
                                 }
                                 geometryCache.clear();
                                 drawingStore.save(drawings.values());
+                                refreshLinkedMarkerListeners();
                                 redraw();
                                 showDrawingListDialog();
                             } else if (which == 1) {
@@ -1038,6 +1049,7 @@ public class JarnsenMrsSectorTool extends Tool
                                 }
                                 geometryCache.clear();
                                 drawingStore.save(drawings.values());
+                                refreshLinkedMarkerListeners();
                                 redraw();
                                 showDrawingListDialog();
                             } else {
@@ -1109,6 +1121,8 @@ public class JarnsenMrsSectorTool extends Tool
         sectorFillColor = d.fillColor;
         originIsSelfSelection = d.originSelf;
         targetIsSelfSelection = d.targetSelf;
+        originMarkerUid = emptyToNull(d.originMarkerUid);
+        targetMarkerUid = emptyToNull(d.targetMarkerUid);
 
         attachSelfListener();
 
@@ -1117,6 +1131,9 @@ public class JarnsenMrsSectorTool extends Tool
                 && isUsable(selfMarker.getPoint())) {
             originItem = selfMarker;
             originPoint = selfMarker.getGeoPointMetaData();
+        } else if (findLinkedMarker(originMarkerUid) != null) {
+            originItem = findLinkedMarker(originMarkerUid);
+            originPoint = originItem.getGeoPointMetaData();
         } else {
             originItem = null;
             originPoint = d.originPoint();
@@ -1127,9 +1144,24 @@ public class JarnsenMrsSectorTool extends Tool
                 && isUsable(selfMarker.getPoint())) {
             targetItem = selfMarker;
             targetPoint = selfMarker.getGeoPointMetaData();
+        } else if (findLinkedMarker(targetMarkerUid) != null) {
+            targetItem = findLinkedMarker(targetMarkerUid);
+            targetPoint = targetItem.getGeoPointMetaData();
         } else {
             targetItem = null;
             targetPoint = d.targetPoint();
+        }
+
+        if (originItem != null
+                && originItem != selfMarker
+                && !linkedMarkerItems.containsValue(originItem)) {
+            originItem.addOnPointChangedListener(this);
+        }
+        if (targetItem != null
+                && targetItem != selfMarker
+                && targetItem != originItem
+                && !linkedMarkerItems.containsValue(targetItem)) {
+            targetItem.addOnPointChangedListener(this);
         }
 
         redraw();
@@ -1158,6 +1190,8 @@ public class JarnsenMrsSectorTool extends Tool
         d.targetLon = target.getLongitude();
         d.originSelf = originIsSelfSelection;
         d.targetSelf = targetIsSelfSelection;
+        d.originMarkerUid = originMarkerUid == null ? "" : originMarkerUid;
+        d.targetMarkerUid = targetMarkerUid == null ? "" : targetMarkerUid;
         d.fillColor = sectorFillColor;
         d.fillAlpha = Color.alpha(sectorFillColor);
         d.updatedAt = System.currentTimeMillis();
@@ -1177,6 +1211,7 @@ public class JarnsenMrsSectorTool extends Tool
         drawings.put(activeDrawingId, d);
         creatingNewDrawing = false;
         drawingStore.save(drawings.values());
+        refreshLinkedMarkerListeners();
         redraw();
     }
 
@@ -1208,6 +1243,7 @@ public class JarnsenMrsSectorTool extends Tool
         targetPoint = null;
         drawingLabel = null;
         drawingStore.save(drawings.values());
+        refreshLinkedMarkerListeners();
         redraw();
     }
 
@@ -1259,6 +1295,7 @@ public class JarnsenMrsSectorTool extends Tool
         drawings.remove(activeDrawingId);
         geometryCache.remove(activeDrawingId);
         drawingStore.save(drawings.values());
+        refreshLinkedMarkerListeners();
         activeDrawingId = null;
         creatingNewDrawing = false;
         detachEndpointListeners();
@@ -1284,6 +1321,7 @@ public class JarnsenMrsSectorTool extends Tool
                 : source.label.trim() + " Kopie";
         drawings.put(copy.id, copy);
         drawingStore.save(drawings.values());
+        refreshLinkedMarkerListeners();
         loadDrawingForEdit(copy.id);
         showExistingDrawingDialog();
     }
@@ -1544,7 +1582,7 @@ public class JarnsenMrsSectorTool extends Tool
                 .setTitle(pointName + " wählen")
                 .setItems(
                         new String[]{
-                                "Eigene Position",
+                                "Eigenposition",
                                 "MGRS eingeben",
                                 "Auf der Karte wählen"
                         },
@@ -1575,8 +1613,14 @@ public class JarnsenMrsSectorTool extends Tool
                 .setMessage(
                         "Start (MGRS)\n"
                                 + formatOriginCoordinate()
+                                + (originIsSelfSelection
+                                ? "\n(folgt Eigenposition)"
+                                : "")
                                 + "\n\nZiel (MGRS)\n"
                                 + formatTargetCoordinate()
+                                + (targetIsSelfSelection
+                                ? "\n(folgt Eigenposition)"
+                                : "")
                 )
                 .setItems(
                         new String[]{
@@ -1836,9 +1880,11 @@ public class JarnsenMrsSectorTool extends Tool
         if ("origin".equals(role)) {
             originPoint = moved;
             originIsSelfSelection = false;
+            originMarkerUid = null;
         } else {
             targetPoint = moved;
             targetIsSelfSelection = false;
+            targetMarkerUid = null;
         }
 
         redraw();
@@ -1996,6 +2042,8 @@ public class JarnsenMrsSectorTool extends Tool
         sectorFillColor = COLOR_FILL;
         originIsSelfSelection = false;
         targetIsSelfSelection = false;
+        originMarkerUid = null;
+        targetMarkerUid = null;
         showPointSourceDialog(SelectionStage.ORIGIN);
     }
 
@@ -2026,7 +2074,7 @@ public class JarnsenMrsSectorTool extends Tool
         if (selfMarker == null || !isUsable(selfMarker.getPoint())) {
             Toast.makeText(
                     mapView.getContext(),
-                    "Eigene Position ist noch nicht verfügbar.",
+                    "Eigenposition ist noch nicht verfügbar.",
                     Toast.LENGTH_SHORT
             ).show();
             showPointSourceDialog(stage);
@@ -2040,15 +2088,79 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
+        final boolean[] followSelf = {false};
+        AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
+                .setTitle((stage == SelectionStage.ORIGIN
+                        ? "Startpunkt"
+                        : "Zielpunkt") + " – Eigenposition")
+                .setMessage(
+                        "Ohne Häkchen wird die aktuelle Eigenposition als "
+                                + "fester Punkt übernommen. Mit Häkchen folgt "
+                                + "die Zeichnung späteren Positionsänderungen."
+                )
+                .setMultiChoiceItems(
+                        new String[]{"Eigenposition folgen"},
+                        followSelf,
+                        (ignored, which, checked) ->
+                                followSelf[which] = checked
+                )
+                .setPositiveButton("Übernehmen", (ignored, which) -> {
+                    activeDialog = null;
+                    applySelfPosition(stage, followSelf[0]);
+                })
+                .setNegativeButton("Zurück", (ignored, which) -> {
+                    activeDialog = null;
+                    showPointSourceDialog(stage);
+                })
+                .setOnCancelListener(ignored -> {
+                    activeDialog = null;
+                    showPointSourceDialog(stage);
+                })
+                .create();
+
+        activeDialog = dialog;
+        dialog.show();
+    }
+
+    private void applySelfPosition(
+            SelectionStage stage,
+            boolean followSelf) {
+        attachSelfListener();
+        if (selfMarker == null || !isUsable(selfMarker.getPoint())) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Eigenposition ist nicht mehr verfügbar.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            showPointSourceDialog(stage);
+            return;
+        }
+
+        GeoPoint current = selfMarker.getPoint();
+        if (stage == SelectionStage.TARGET
+                && !isDifferentFromOrigin(current)) {
+            showSamePointWarning();
+            showPointSourceDialog(stage);
+            return;
+        }
+
+        GeoPointMetaData selected = followSelf
+                ? selfMarker.getGeoPointMetaData()
+                : GeoPointMetaData.wrap(new GeoPoint(
+                        current.getLatitude(),
+                        current.getLongitude()
+                ));
+        MapItem boundItem = followSelf ? selfMarker : null;
+
         if (stage == SelectionStage.ORIGIN) {
-            setOrigin(selfMarker.getGeoPointMetaData(), selfMarker);
+            setOrigin(selected, boundItem);
             if (editingExistingPoint) {
                 finishPointEdit();
             } else {
                 showPointSourceDialog(SelectionStage.TARGET);
             }
         } else {
-            setTarget(selfMarker.getGeoPointMetaData(), selfMarker);
+            setTarget(selected, boundItem);
             if (editingExistingPoint) {
                 finishPointEdit();
             } else {
@@ -2163,6 +2275,8 @@ public class JarnsenMrsSectorTool extends Tool
                 .setNegativeButton("Zurück", (ignored, which) -> {
                     activeDialog = null;
                     if (editingExistingPoint) {
+                        discardNoOpUndoState();
+                        editingExistingPoint = false;
                         showEditDrawingDialog();
                     } else {
                         showPointSourceDialog(stage);
@@ -2370,6 +2484,7 @@ public class JarnsenMrsSectorTool extends Tool
     private void cancelPointSelection() {
         stopMapSelection();
         if (editingExistingPoint) {
+            discardNoOpUndoState();
             editingExistingPoint = false;
             showExistingDrawingDialog();
         } else {
@@ -2379,6 +2494,7 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void closeTool() {
         stopMapSelection();
+        discardNoOpUndoState();
         removeEditHandles();
         editingExistingPoint = false;
         creatingNewDrawing = false;
@@ -2390,6 +2506,8 @@ public class JarnsenMrsSectorTool extends Tool
         drawingLabel = null;
         originIsSelfSelection = false;
         targetIsSelfSelection = false;
+        originMarkerUid = null;
+        targetMarkerUid = null;
         redraw();
         ToolManagerBroadcastReceiver.getInstance().endCurrentTool();
     }
@@ -2450,7 +2568,7 @@ public class JarnsenMrsSectorTool extends Tool
                     if (continueToColor) {
                         showColorSelectionDialog(true);
                     } else {
-                        commitEditorToWorkspace();
+                        discardNoOpUndoState();
                         showExistingDrawingDialog();
                     }
                 })
@@ -2527,7 +2645,7 @@ public class JarnsenMrsSectorTool extends Tool
                         commitEditorToWorkspace();
                         showExistingDrawingDialog();
                     } else {
-                        commitEditorToWorkspace();
+                        discardNoOpUndoState();
                         showExistingDrawingDialog();
                     }
                 })
@@ -2572,26 +2690,41 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void resetEndpoints() {
+        discardNoOpUndoState();
         detachEndpointListeners();
         originPoint = null;
         targetPoint = null;
         originIsSelfSelection = false;
         targetIsSelfSelection = false;
+        originMarkerUid = null;
+        targetMarkerUid = null;
         editingExistingPoint = false;
         lastVisualResolution = Double.NaN;
         removeEditHandles();
         redraw();
     }
 
+    private void discardNoOpUndoState() {
+        if (history.discardLastUndoIfEquals(
+                drawingStore.snapshot(drawings.values()))) {
+            persistHistory();
+        }
+    }
+
     private void setOrigin(GeoPointMetaData point, MapItem item) {
         detachOriginListener();
         originPoint = point;
         originIsSelfSelection = item != null && item == selfMarker;
+        originMarkerUid = item instanceof PointMapItem
+                && item != selfMarker
+                ? item.getUID()
+                : null;
 
         if (item instanceof PointMapItem) {
             originItem = (PointMapItem) item;
             originPoint = originItem.getGeoPointMetaData();
-            if (originItem != selfMarker) {
+            if (originItem != selfMarker
+                    && !linkedMarkerItems.containsValue(originItem)) {
                 originItem.addOnPointChangedListener(this);
             }
         }
@@ -2602,11 +2735,16 @@ public class JarnsenMrsSectorTool extends Tool
 
         targetPoint = point;
         targetIsSelfSelection = item != null && item == selfMarker;
+        targetMarkerUid = item instanceof PointMapItem
+                && item != selfMarker
+                ? item.getUID()
+                : null;
 
         if (item instanceof PointMapItem) {
             targetItem = (PointMapItem) item;
             targetPoint = targetItem.getGeoPointMetaData();
-            if (targetItem != selfMarker) {
+            if (targetItem != selfMarker
+                    && !linkedMarkerItems.containsValue(targetItem)) {
                 targetItem.addOnPointChangedListener(this);
             }
         }
@@ -2616,7 +2754,8 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void detachTargetListener() {
         if (targetItem != null) {
-            if (targetItem != selfMarker) {
+            if (targetItem != selfMarker
+                    && !linkedMarkerItems.containsValue(targetItem)) {
                 targetItem.removeOnPointChangedListener(this);
             }
             targetItem = null;
@@ -2625,7 +2764,8 @@ public class JarnsenMrsSectorTool extends Tool
 
     private void detachOriginListener() {
         if (originItem != null) {
-            if (originItem != selfMarker) {
+            if (originItem != selfMarker
+                    && !linkedMarkerItems.containsValue(originItem)) {
                 originItem.removeOnPointChangedListener(this);
             }
             originItem = null;
@@ -2637,9 +2777,63 @@ public class JarnsenMrsSectorTool extends Tool
         detachTargetListener();
     }
 
+    private PointMapItem findLinkedMarker(String uid) {
+        String value = emptyToNull(uid);
+        if (value == null) {
+            return null;
+        }
+        MapItem item = mapView.getRootGroup().deepFindUID(value);
+        return item instanceof PointMapItem
+                ? (PointMapItem) item
+                : null;
+    }
+
+    private void refreshLinkedMarkerListeners() {
+        LinkedHashMap<String, PointMapItem> desired =
+                new LinkedHashMap<>();
+        for (MrsDrawing drawing : drawings.values()) {
+            PointMapItem origin = findLinkedMarker(drawing.originMarkerUid);
+            if (origin != null && origin != selfMarker) {
+                desired.put(origin.getUID(), origin);
+            }
+            PointMapItem target = findLinkedMarker(drawing.targetMarkerUid);
+            if (target != null && target != selfMarker) {
+                desired.put(target.getUID(), target);
+            }
+        }
+
+        for (Map.Entry<String, PointMapItem> entry
+                : new ArrayList<>(linkedMarkerItems.entrySet())) {
+            PointMapItem replacement = desired.get(entry.getKey());
+            if (replacement != entry.getValue()) {
+                entry.getValue().removeOnPointChangedListener(this);
+                linkedMarkerItems.remove(entry.getKey());
+            }
+        }
+
+        for (Map.Entry<String, PointMapItem> entry : desired.entrySet()) {
+            if (linkedMarkerItems.containsKey(entry.getKey())) {
+                continue;
+            }
+            PointMapItem marker = entry.getValue();
+            if (marker != originItem && marker != targetItem) {
+                marker.addOnPointChangedListener(this);
+            }
+            linkedMarkerItems.put(entry.getKey(), marker);
+        }
+    }
+
+    private static String emptyToNull(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim();
+    }
+
     private void redraw() {
         clearOverlayItems();
         attachSelfListener();
+        refreshLinkedMarkerListeners();
 
         for (MrsDrawing d : drawings.values()) {
             if (!d.visible
@@ -2688,11 +2882,16 @@ public class JarnsenMrsSectorTool extends Tool
     private void renderStoredDrawing(MrsDrawing d) {
         GeoPoint origin;
         GeoPoint target;
+        PointMapItem originMarker = findLinkedMarker(d.originMarkerUid);
+        PointMapItem targetMarker = findLinkedMarker(d.targetMarkerUid);
 
         if (d.originSelf
                 && selfMarker != null
                 && isUsable(selfMarker.getPoint())) {
             origin = selfMarker.getPoint();
+        } else if (originMarker != null
+                && isUsable(originMarker.getPoint())) {
+            origin = originMarker.getPoint();
         } else {
             origin = d.originPoint().get();
         }
@@ -2701,6 +2900,9 @@ public class JarnsenMrsSectorTool extends Tool
                 && selfMarker != null
                 && isUsable(selfMarker.getPoint())) {
             target = selfMarker.getPoint();
+        } else if (targetMarker != null
+                && isUsable(targetMarker.getPoint())) {
+            target = targetMarker.getPoint();
         } else {
             target = d.targetPoint().get();
         }

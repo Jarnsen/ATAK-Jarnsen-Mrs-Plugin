@@ -58,6 +58,16 @@ final class MrsHistory {
         return redo.size();
     }
 
+    boolean discardLastUndoIfEquals(String snapshot) {
+        if (snapshot == null
+                || undo.isEmpty()
+                || !snapshot.equals(undo.peekLast())) {
+            return false;
+        }
+        undo.removeLast();
+        return true;
+    }
+
     List<String> undoSnapshots() {
         return new ArrayList<>(undo);
     }

@@ -19,6 +19,8 @@ public class MrsDrawingStoreCodecTest {
         input.originLon = 8.2;
         input.targetLat = 49.2;
         input.targetLon = 8.4;
+        input.originMarkerUid = "marker-origin";
+        input.targetMarkerUid = "marker-target";
         input.fillColor = 0x55112233;
         input.showHalfKm = false;
         input.showBracket = false;
@@ -38,6 +40,8 @@ public class MrsDrawingStoreCodecTest {
         assertEquals("Mrs Test", output.label);
         assertEquals(49.1, output.originLat, 0.0);
         assertEquals(8.4, output.targetLon, 0.0);
+        assertEquals("marker-origin", output.originMarkerUid);
+        assertEquals("marker-target", output.targetMarkerUid);
         assertEquals(0x55112233, output.fillColor);
         assertFalse(output.showHalfKm);
         assertFalse(output.showBracket);
@@ -63,5 +67,18 @@ public class MrsDrawingStoreCodecTest {
                 MrsDrawingStore.decodeHistory(encoded);
         assertEquals(1, decoded.size());
         assertEquals(valid, decoded.get(0));
+    }
+
+    @Test
+    public void duplicateKeepsMarkerLinksButGetsIndependentId() {
+        MrsDrawing original = new MrsDrawing("original");
+        original.originMarkerUid = "marker-origin";
+        original.targetMarkerUid = "marker-target";
+
+        MrsDrawing copy = original.copyAsNew();
+
+        assertFalse(original.id.equals(copy.id));
+        assertEquals("marker-origin", copy.originMarkerUid);
+        assertEquals("marker-target", copy.targetMarkerUid);
     }
 }
