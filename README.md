@@ -5,7 +5,7 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.4.2** macht die Mehrzeichnungs-Verwaltung direkt bedienbar:
+Version **0.4.3** korrigiert die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
 Nach dem Speichern bleibt die neue Zeichnung geöffnet. **Bearbeiten**,
 **Neue Zeichnung** und **Zur Übersicht** sind unmittelbar erreichbar.
 Mehrere Zeichnungen können parallel angelegt, einzeln bearbeitet, dupliziert,
@@ -238,6 +238,12 @@ die tatsächlichen Core-Klassen.
 - abgebrochene Punkt- oder Griffbearbeitungen erzeugen keinen leeren Undo-Schritt
 - manuelle Koordinateneingabe weiterhin ausschließlich als MGRS
 - maximale Sektorreichtiefe bleibt fest bei **8 km**
+
+## Version 0.4.3
+
+- Aktionslisten bleiben sichtbar: Statusmeldungen stehen im Menütitel statt im Android-Dialogfeld, das mit der Liste kollidiert
+- Betrifft Plugin-Übersicht, Zeichnungsaktionen und Importauswahl
+- Zeichnungsdaten bleiben mit Version 0.4.2 kompatibel
 
 ## Version 0.4.1
 
