@@ -149,6 +149,7 @@ public class JarnsenMrsSectorTool extends Tool
 
     private boolean selectionActive;
     private boolean targetDragMoved;
+    private boolean targetScaleGestureInProgress;
     private boolean editingExistingPoint;
     private int sectorFillColor = COLOR_FILL;
     private double lastVisualResolution = Double.NaN;
@@ -355,6 +356,29 @@ public class JarnsenMrsSectorTool extends Tool
     @Override
     public void onMapEvent(MapEvent event) {
         String eventType = event.getType();
+
+        if (selectionStage == SelectionStage.TARGET) {
+            if (MapEvent.MAP_SCALE.equals(eventType)) {
+                // A pinch zoom can finish with MAP_RELEASE too. Keep target
+                // placement active so zooming never commits the target.
+                targetScaleGestureInProgress = true;
+                return;
+            }
+
+            if (MapEvent.MAP_PRESS.equals(eventType)
+                    || MapEvent.ITEM_PRESS.equals(eventType)) {
+                // A fresh one-finger placement gesture can commit normally.
+                targetScaleGestureInProgress = false;
+            } else if (targetScaleGestureInProgress
+                    && (MapEvent.MAP_RELEASE.equals(eventType)
+                    || MapEvent.ITEM_RELEASE.equals(eventType)
+                    || MapEvent.ITEM_DRAG_DROPPED.equals(eventType)
+                    || MapEvent.MAP_CLICK.equals(eventType)
+                    || MapEvent.ITEM_CLICK.equals(eventType))) {
+                return;
+            }
+        }
+
         GeoPointMetaData clicked = findPoint(event);
         if (clicked == null || !isUsable(clicked.get())) {
             return;
@@ -2389,6 +2413,7 @@ public class JarnsenMrsSectorTool extends Tool
     private void beginMapSelection(SelectionStage stage) {
         stopMapSelection();
         selectionStage = stage;
+        targetScaleGestureInProgress = false;
 
         MapEventDispatcher dispatcher = mapView.getMapEventDispatcher();
         dispatcher.pushListeners();
@@ -2398,6 +2423,7 @@ public class JarnsenMrsSectorTool extends Tool
         dispatcher.addMapEventListener(MapEvent.MAP_CLICK, this);
 
         if (stage == SelectionStage.TARGET) {
+            dispatcher.clearListeners(MapEvent.MAP_SCALE);
             dispatcher.clearListeners(MapEvent.ITEM_PRESS);
             dispatcher.clearListeners(MapEvent.ITEM_RELEASE);
             dispatcher.clearListeners(MapEvent.ITEM_DRAG_STARTED);
@@ -2414,6 +2440,7 @@ public class JarnsenMrsSectorTool extends Tool
             dispatcher.addMapEventListener(MapEvent.MAP_PRESS, this);
             dispatcher.addMapEventListener(MapEvent.MAP_DRAW, this);
             dispatcher.addMapEventListener(MapEvent.MAP_RELEASE, this);
+            dispatcher.addMapEventListener(MapEvent.MAP_SCALE, this);
         }
 
         mapView.getMapTouchController().skipDeconfliction(true);
@@ -2431,6 +2458,7 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void stopMapSelection() {
+        targetScaleGestureInProgress = false;
         if (!selectionActive) {
             selectionStage = SelectionStage.NONE;
             return;

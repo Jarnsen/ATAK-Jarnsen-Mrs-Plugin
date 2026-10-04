@@ -5,7 +5,7 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.4.3** korrigiert die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
+Version **0.4.4** verhindert, dass ein Zwei-Finger-Pinch-Zoom während der Zielauswahl versehentlich den Zielpunkt festsetzt. Ein neuer Karten- oder Markertipp startet die Platzierung anschließend normal. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
 Nach dem Speichern bleibt die neue Zeichnung geöffnet. **Bearbeiten**,
 **Neue Zeichnung** und **Zur Übersicht** sind unmittelbar erreichbar.
 Mehrere Zeichnungen können parallel angelegt, einzeln bearbeitet, dupliziert,
@@ -238,6 +238,12 @@ die tatsächlichen Core-Klassen.
 - abgebrochene Punkt- oder Griffbearbeitungen erzeugen keinen leeren Undo-Schritt
 - manuelle Koordinateneingabe weiterhin ausschließlich als MGRS
 - maximale Sektorreichtiefe bleibt fest bei **8 km**
+
+## Version 0.4.4
+
+- Pinch-Zoom wird während der Zielauswahl als Karten-Skalierung erkannt. Die zugehörigen Release-/Click-Ereignisse schließen die Zielauswahl nicht mehr.
+- Nach dem Zoomen kann der Zielpunkt weiter auf der Karte gesetzt oder gezogen werden; normale Einzelberührungen übernehmen ihn weiterhin wie zuvor.
+- Build und JVM-Regressionstests laufen in GitHub Actions. Touch-Verhalten zusätzlich auf ATAK-CIV 5.6.0 prüfen.
 
 ## Version 0.4.3
 
