@@ -5,7 +5,7 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.4.4** verhindert, dass ein Zwei-Finger-Pinch-Zoom während der Zielauswahl versehentlich den Zielpunkt festsetzt. Ein neuer Karten- oder Markertipp startet die Platzierung anschließend normal. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
+Version **0.4.5** verhindert, dass die Karte beim Ziehen des Zielpunkts mitwandert: Ein-Finger-Ziehen bewegt die Zielvorschau, Zwei-Finger-Pinch wird weiterhin an ATAK zum Zoomen übergeben und setzt das Ziel nicht fest. Nach dem Pinch startet eine neue Berührung die Platzierung. Version 0.4.4 hatte bereits verhindert, dass ein Pinch-Zoom den Zielpunkt versehentlich festsetzt. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
 Nach dem Speichern bleibt die neue Zeichnung geöffnet. **Bearbeiten**,
 **Neue Zeichnung** und **Zur Übersicht** sind unmittelbar erreichbar.
 Mehrere Zeichnungen können parallel angelegt, einzeln bearbeitet, dupliziert,
@@ -116,8 +116,9 @@ verwendet werden.
 2. Den Startpunkt wählen: **Eigenposition**, **MGRS eingeben** oder
    **Auf der Karte wählen**.
 3. Den Zielpunkt auf die gleiche Weise wählen.
-   Bei **Auf der Karte wählen** wird die Darstellung bereits beim Berühren
-   aufgebaut, beim Ziehen live nachgeführt und erst beim Loslassen festgelegt.
+   Bei **Auf der Karte wählen** bleibt die Karte beim Ein-Finger-Ziehen stehen:
+   Die Zielvorschau folgt dem Finger und wird erst beim Loslassen festgelegt.
+   Zwei-Finger-Pinch zoomt die Karte, ohne das Ziel festzusetzen.
 4. Das Plugin zeichnet den Sektor vom gewählten Start zum gewählten Ziel.
 5. Optional eine Sektorfarbe auswählen: **Weiß, Rot, Gelb, Blau, Grün** oder
    **Schwarz**. Mit **Standard** oder durch Schließen der Auswahl bleibt

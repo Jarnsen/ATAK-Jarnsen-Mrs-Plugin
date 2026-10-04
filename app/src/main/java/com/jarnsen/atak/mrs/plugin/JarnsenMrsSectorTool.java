@@ -359,22 +359,22 @@ public class JarnsenMrsSectorTool extends Tool
 
         if (selectionStage == SelectionStage.TARGET) {
             if (MapEvent.MAP_SCALE.equals(eventType)) {
-                // A pinch zoom can finish with MAP_RELEASE too. Keep target
-                // placement active so zooming never commits the target.
+                // The selection listener replaces ATAK's default MAP_SCALE
+                // handler while this temporary listener set is active.
+                // Forward the event explicitly so pinch zoom still works.
                 targetScaleGestureInProgress = true;
+                mapView.getMapTouchController().onScaleEvent(event);
                 return;
             }
 
             if (MapEvent.MAP_PRESS.equals(eventType)
                     || MapEvent.ITEM_PRESS.equals(eventType)) {
-                // A fresh one-finger placement gesture can commit normally.
+                // A fresh one-finger gesture can place or drag the target.
                 targetScaleGestureInProgress = false;
-            } else if (targetScaleGestureInProgress
-                    && (MapEvent.MAP_RELEASE.equals(eventType)
-                    || MapEvent.ITEM_RELEASE.equals(eventType)
-                    || MapEvent.ITEM_DRAG_DROPPED.equals(eventType)
-                    || MapEvent.MAP_CLICK.equals(eventType)
-                    || MapEvent.ITEM_CLICK.equals(eventType))) {
+                targetDragMoved = false;
+            } else if (targetScaleGestureInProgress) {
+                // Ignore the remaining finger movement and release from a
+                // pinch. A new press starts a separate placement gesture.
                 return;
             }
         }
@@ -2423,6 +2423,9 @@ public class JarnsenMrsSectorTool extends Tool
         dispatcher.addMapEventListener(MapEvent.MAP_CLICK, this);
 
         if (stage == SelectionStage.TARGET) {
+            // MAP_SCROLL is ATAK's default camera-pan handler. Remove it only
+            // for target placement, while keeping the MAP_DRAW preview events.
+            dispatcher.clearListeners(MapEvent.MAP_SCROLL);
             dispatcher.clearListeners(MapEvent.MAP_SCALE);
             dispatcher.clearListeners(MapEvent.ITEM_PRESS);
             dispatcher.clearListeners(MapEvent.ITEM_RELEASE);
