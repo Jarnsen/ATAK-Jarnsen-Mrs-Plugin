@@ -570,9 +570,9 @@ public class JarnsenMrsSectorTool extends Tool
         }
 
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
-                .setTitle("Jarnsen Mrs Plugin")
-                .setMessage(
-                        drawings.size() + " gespeicherte Zeichnung"
+                .setTitle(
+                        "Jarnsen Mrs Plugin · "
+                                + drawings.size() + " Zeichnung"
                                 + (drawings.size() == 1 ? "" : "en")
                                 + " · " + visibleCount + " sichtbar"
                 )
@@ -1008,11 +1008,10 @@ public class JarnsenMrsSectorTool extends Tool
             List<MrsDrawing> imported,
             String sourceName) {
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
-                .setTitle("Import: " + sourceName)
-                .setMessage(
-                        imported.size() + " Zeichnung"
+                .setTitle(
+                        "Import: " + sourceName + " · " + imported.size()
+                                + " Zeichnung"
                                 + (imported.size() == 1 ? "" : "en")
-                                + " gefunden."
                 )
                 .setItems(
                         new String[]{
@@ -1610,18 +1609,6 @@ public class JarnsenMrsSectorTool extends Tool
     private void showExistingDrawingDialog() {
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle(getDrawingLabel())
-                .setMessage(
-                        "Start (MGRS)\n"
-                                + formatOriginCoordinate()
-                                + (originIsSelfSelection
-                                ? "\n(folgt Eigenposition)"
-                                : "")
-                                + "\n\nZiel (MGRS)\n"
-                                + formatTargetCoordinate()
-                                + (targetIsSelfSelection
-                                ? "\n(folgt Eigenposition)"
-                                : "")
-                )
                 .setItems(
                         new String[]{
                                 "Bearbeiten",
