@@ -340,10 +340,8 @@ public class JarnsenMrsSectorTool extends Tool
                 && originPoint != null
                 && targetPoint != null) {
             showExistingDrawingDialog();
-        } else if (!drawings.isEmpty()) {
-            showWorkspaceMenu();
         } else {
-            startNewSetup();
+            showWorkspaceMenu();
         }
         return true;
     }
@@ -3055,14 +3053,33 @@ public class JarnsenMrsSectorTool extends Tool
                         || (highlightedDrawingId != null
                         && highlightedDrawingId.equals(d.id));
 
-        double trueBearing = normalizeDegrees(own.bearingTo(target));
+        double selectedTrueBearing = normalizeDegrees(own.bearingTo(target));
+        double gridBearing = toGridBearing(
+                own,
+                target,
+                selectedTrueBearing
+        );
+        int gridMil = MrsCoreLogic.snapMilToStep(
+                degreesToMil(gridBearing),
+                50
+        );
+        double trueBearing = gridMilToTrueBearing(
+                own,
+                target,
+                gridMil
+        );
+        // Keep the visible arrow, range geometry and target marker on the
+        // snapped 50-mil axis while preserving the selected range.
+        target = GeoCalculations.pointAtDistance(
+                own,
+                trueBearing,
+                targetDistance
+        );
         StaticGeometry staticGeometry = getStaticGeometry(
                 d.id,
                 own,
                 trueBearing
         );
-        double gridBearing = toGridBearing(own, target, trueBearing);
-        int gridMil = degreesToMil(gridBearing);
         double bracketAnchor = targetDistance / 2.0;
         double visualResolution = getVisualResolution();
         lastVisualResolution = visualResolution;
@@ -3684,6 +3701,19 @@ public class JarnsenMrsSectorTool extends Tool
         }
 
         return normalizeDegrees(trueBearing - convergence);
+    }
+
+    private static double gridMilToTrueBearing(
+            GeoPoint own,
+            GeoPoint target,
+            int gridMil) {
+        double convergence = ATAKUtilities.computeGridConvergence(own, target);
+        if (Double.isNaN(convergence)) {
+            convergence = 0.0;
+        }
+        return normalizeDegrees(
+                MrsCoreLogic.milToDegrees(gridMil) + convergence
+        );
     }
 
     private static int degreesToMil(double degrees) {
