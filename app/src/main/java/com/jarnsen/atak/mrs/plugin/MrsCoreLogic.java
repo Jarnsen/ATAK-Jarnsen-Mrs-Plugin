@@ -79,4 +79,33 @@ final class MrsCoreLogic {
         double out = value % 360.0;
         return out < 0.0 ? out + 360.0 : out;
     }
+
+    static double annotationLengthMeters(
+            double textWidthPixels,
+            double textSizePixels,
+            double metersPerPixel) {
+        if (!Double.isFinite(textWidthPixels)
+                || !Double.isFinite(textSizePixels)
+                || !Double.isFinite(metersPerPixel)
+                || textWidthPixels < 0.0
+                || textSizePixels <= 0.0
+                || metersPerPixel <= 0.0) {
+            return Double.POSITIVE_INFINITY;
+        }
+        return (textWidthPixels + 2.0 * textSizePixels) * metersPerPixel;
+    }
+
+    static boolean annotationFits(
+            double availableMeters,
+            double textWidthPixels,
+            double textSizePixels,
+            double metersPerPixel) {
+        return Double.isFinite(availableMeters)
+                && availableMeters >= 0.0
+                && availableMeters >= annotationLengthMeters(
+                        textWidthPixels,
+                        textSizePixels,
+                        metersPerPixel
+                );
+    }
 }
