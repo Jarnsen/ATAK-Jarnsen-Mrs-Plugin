@@ -19,10 +19,13 @@
 ## Bezugssystem
 
 Die Kartenpunkte werden geodätisch vom gewählten Startpunkt aus berechnet. Der
-Start- und Zielpunkt kann jeweils die eigene Position, eine eingegebene
-Dezimalgrad-Koordinate oder ein Punkt auf der Karte sein. Die Sektorgeometrie
-benutzt den True-Bearing vom Start zum Ziel. Das ist korrekt, weil die Öffnung
-von ±600 Strich relativ zur Mittellinie definiert ist.
+Start- und Zielpunkt kann jeweils die eigene Position, eine MGRS-Koordinate, ein
+ATAK-Marker oder ein Punkt auf der Karte sein. Die Richtung vom Start zum
+ausgewählten Ziel wird in Gitternord umgerechnet und auf das nächste Vielfache
+von 50 Strich gerundet. Pfeil und Sektorgeometrie liegen auf dieser gerundeten
+Achse; die Entfernung zum ausgewählten Ziel bleibt erhalten. Der sichtbare
+Zielpunkt kann dadurch seitlich um bis zu 25 Strich (1,40625°) versetzt sein.
+Die Öffnung von ±600 Strich wird relativ zur gerundeten Mittellinie berechnet.
 
 Bei der Zielauswahl auf der Karte wird die komplette Darstellung ab dem
 Berühren live aufgebaut. Während des Ziehens werden Ziellinie, Klammer,
@@ -34,13 +37,16 @@ wird mit transparenter Deckkraft als Sektorschattierung verwendet. Wird die
 Auswahl geschlossen oder **Standard** gewählt, bleibt die bisherige
 Standarddarstellung erhalten.
 
-Die sichtbare Richtungsangabe wird auf Gitternord umgerechnet:
+Die Richtung wird auf Gitternord umgerechnet und auf 50 Strich gerundet:
 
 1. True-Bearing Start → Ziel
 2. ATAK Grid Convergence bestimmen
 3. Grid-Bearing = True-Bearing - Grid Convergence
 4. Grid-Bearing auf 0…360° normalisieren
 5. auf 0…6399 Strich umrechnen
+6. auf den nächsten 50-Strich-Schritt runden (am Nordübergang zyklisch)
+7. den gerundeten Gitternordwinkel mit der Grid Convergence zurück in eine
+   Kartenrichtung umrechnen
 
 ## 500-m- und 1-km-Bögen
 
