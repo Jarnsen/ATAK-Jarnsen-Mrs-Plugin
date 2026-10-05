@@ -5,7 +5,7 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.4.7** ergänzt die Update-Prüfung um einen bestätigten Download des TAK.gov-signierten APKs. Die Datei wird vor dem Kopieren auf SHA-256, Plugin-Paket und Signatur geprüft und nach `/atak/support/apks/custom` abgelegt. Das Plugin installiert das APK nicht selbst. Version 0.4.6 räumt beim Neuzeichnen alte Kartenobjekte zuverlässig auf, stellt die gespeicherte Fülltransparenz wieder her, zeigt den Eigenpositions-Haken direkt an und setzt die GR/MRS-Beschriftung an den Zielpfeil. Version 0.4.5 verhindert, dass die Karte beim Ziehen des Zielpunkts mitwandert: Ein-Finger-Ziehen bewegt die Zielvorschau, Zwei-Finger-Pinch wird weiterhin an ATAK zum Zoomen übergeben und setzt das Ziel nicht fest. Nach dem Pinch startet eine neue Berührung die Platzierung. Version 0.4.4 hatte bereits verhindert, dass ein Pinch-Zoom den Zielpunkt versehentlich festsetzt. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
+Version **0.4.8** platziert GR/MRS und Zielentfernung getrennt am Zielpfeil. Jede Angabe erscheint, sobald ihre gemessene Textbreite samt Abstand in den freien Abschnitt der Ziellinie passt. Version **0.4.7** ergänzt die Update-Prüfung um einen bestätigten Download des TAK.gov-signierten APKs. Die Datei wird vor dem Kopieren auf SHA-256, Plugin-Paket und Signatur geprüft und nach `/atak/support/apks/custom` abgelegt. Das Plugin installiert das APK nicht selbst. Version 0.4.6 räumt beim Neuzeichnen alte Kartenobjekte zuverlässig auf, stellt die gespeicherte Fülltransparenz wieder her und zeigt den Eigenpositions-Haken direkt an. Version 0.4.5 verhindert, dass die Karte beim Ziehen des Zielpunkts mitwandert: Ein-Finger-Ziehen bewegt die Zielvorschau, Zwei-Finger-Pinch wird weiterhin an ATAK zum Zoomen übergeben und setzt das Ziel nicht fest. Nach dem Pinch startet eine neue Berührung die Platzierung. Version 0.4.4 hatte bereits verhindert, dass ein Pinch-Zoom den Zielpunkt versehentlich festsetzt. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
 Nach dem Speichern bleibt die neue Zeichnung geöffnet. **Bearbeiten**,
 **Neue Zeichnung** und **Zur Übersicht** sind unmittelbar erreichbar.
 Mehrere Zeichnungen können parallel angelegt, einzeln bearbeitet, dupliziert,
@@ -151,9 +151,11 @@ verwendet werden.
   zugehörigen Bogen
 - genau **eine** zentrale, um 90° gedrehte `)(`-Klammer in der Mitte der
   Ziellinie
-- an der Klammer:
+- am Zielpfeil, sobald genug Platz auf der Ziellinie vorhanden ist:
   - oben: Bezeichnung und Grundrichtung als **MRS 01  GR xxxx mils**
-  - unten: tatsächliche Entfernung zum Ziel in Metern
+  - darunter: tatsächliche Entfernung zum Ziel in Metern
+  - beide Angaben werden unabhängig voneinander eingeblendet, sobald ihre
+    gemessene Textbreite auf die freie Ziellinie passt
 - rotes Zielkreuz ohne dauerhafte Zielbeschriftung
 - beim Antippen der Darstellung wird die Zielkoordinate in **MGRS** angezeigt
 
@@ -266,6 +268,14 @@ die tatsächlichen Core-Klassen.
 - Update-Prüfung erkennt ausschließlich TAK.gov-signierte Jarnsen-Mrs-APK-Assets
 - Download nur nach Bestätigung; SHA-256, Paketname, Version und Signatur werden vor dem Kopieren geprüft
 - geprüfte APK-Datei nach `/atak/support/apks/custom` kopieren; keine automatische Installation
+
+## Version 0.4.8
+
+- GR/MRS-Beschriftung und Zielentfernung an den Zielpfeil setzen
+- jede Beschriftung anhand ihrer gemessenen Textbreite und des freien
+  Linienabschnitts zwischen Mittelklammer und Pfeil einzeln einblenden
+- Werte beim Zoomen oder Ändern des Zielabstands neu an den verfügbaren Platz
+  anpassen
 
 ## Version 0.4.3
 
