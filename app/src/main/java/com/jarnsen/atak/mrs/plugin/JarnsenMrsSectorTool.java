@@ -3002,6 +3002,22 @@ public class JarnsenMrsSectorTool extends Tool
                 35.0,
                 260.0
         );
+        double targetLabelStartGap = clamp(
+                visualResolution * 72.0,
+                120.0,
+                700.0
+        );
+        double targetLabelLength = clamp(
+                visualResolution * 145.0,
+                240.0,
+                1350.0
+        );
+        double targetLabelAnchor = Math.max(
+                0.0,
+                targetDistance - targetLabelStartGap
+                        - targetLabelLength / 2.0
+                        - clamp(visualResolution * 12.0, 100.0, 420.0)
+        );
 
         if (d.showFill) {
             addSectorFill(staticGeometry.fill);
@@ -3048,8 +3064,7 @@ public class JarnsenMrsSectorTool extends Tool
             addBracketLabel(
                     own,
                     trueBearing,
-                    Math.max(0.0, targetDistance
-                            - clamp(visualResolution * 80.0, 70.0, 320.0)),
+                    targetLabelAnchor,
                     bracketLabelOffset,
                     String.format(
                             Locale.GERMANY,
