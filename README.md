@@ -78,9 +78,10 @@ Alle manuell eingegebenen Koordinaten sind MGRS.
 5. Die 500-m- und 1-km-Bögen helfen dabei, Entfernungen auf der Karte schnell
    räumlich einzuordnen.
 
-Eine mögliche Anzeige lautet zum Beispiel **MRS 01 – GR 1234 mils** und
-**Entfernung 4.350 m**. Das sind nur Beispielwerte; Richtung und Entfernung
-werden immer aus den tatsächlich gewählten Punkten berechnet.
+Eine mögliche Anzeige lautet zum Beispiel **MRS 01 – GR 1250 mils** und
+**Entfernung 4.350 m**. Das sind Beispielwerte. Die Richtung wird auf den
+nächsten 50-Strich-Schritt gerundet; die Entfernung bleibt die zum gewählten
+Zielpunkt.
 
 ### Beispiel 2 – Beweglicher Bezugspunkt
 
@@ -123,7 +124,7 @@ verwendet werden.
    Bei **Auf der Karte wählen** bleibt die Karte beim Ein-Finger-Ziehen stehen:
    Die Zielvorschau folgt dem Finger und wird erst beim Loslassen festgelegt.
    Zwei-Finger-Pinch zoomt die Karte, ohne das Ziel festzusetzen.
-4. Das Plugin zeichnet den Sektor vom gewählten Start zum gewählten Ziel.
+4. Die Grundrichtung wird auf den nächsten 50-Strich-Schritt gerundet. Pfeil und Sektor folgen der gerundeten Linie; die Entfernung zum gewählten Ziel bleibt erhalten.
 5. Optional eine Sektorfarbe auswählen: **Weiß, Rot, Gelb, Blau, Grün** oder
    **Schwarz**. Mit **Standard** oder durch Schließen der Auswahl bleibt
    die bisherige Standardfarbe erhalten.
@@ -161,8 +162,10 @@ verwendet werden.
 
 ## Gitternord
 
-Die Karten-Geometrie wird mit dem geodätischen True-Bearing gezeichnet. Für die
-angezeigte Richtung wird ATAKs eigene Grid-Convergence-Berechnung verwendet:
+Aus Start und gewähltem Ziel wird die Richtung berechnet. ATAKs eigene
+Grid-Convergence-Berechnung wandelt sie in Gitternord um; anschließend wird auf
+den nächsten 50-Strich-Schritt gerundet. Die gerundete Richtung wird mit der
+Grid Convergence wieder in eine Kartenrichtung zurückgerechnet:
 
 `Grid Bearing = True Bearing - Grid Convergence`
 
@@ -170,8 +173,9 @@ Danach erfolgt die Umrechnung:
 
 `Strich = Grad × 6400 / 360`
 
-Damit bleibt die Linie geometrisch korrekt, während die Richtungsangabe als
-Gitternord/Strich ausgegeben wird.
+Linie, Pfeil und Sektor folgen gemeinsam der gerundeten Richtung. Die Entfernung
+zum ausgewählten Ziel bleibt erhalten; der sichtbare Endpunkt kann gegenüber
+dem Eingabepunkt seitlich um bis zu 25 Strich (1,40625°) versetzt sein.
 
 ## Technische Basis
 
