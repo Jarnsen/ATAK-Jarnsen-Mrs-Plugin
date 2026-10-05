@@ -15,6 +15,9 @@ import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.content.Context;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -26,6 +29,7 @@ import android.widget.Toast;
 import com.atakmap.android.maps.MapEvent;
 import com.atakmap.android.maps.MapEventDispatcher;
 import com.atakmap.android.maps.MapGroup;
+import com.atakmap.android.maps.DefaultMapGroup;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.android.maps.Marker;
@@ -130,6 +134,7 @@ public class JarnsenMrsSectorTool extends Tool
 
     private final MapView mapView;
     private final MapGroup overlayGroup;
+    private final MapGroup renderGroup;
     private final TextContainer prompt;
     private final List<MapItem> overlayItems = new ArrayList<>();
     private final MrsDrawingStore drawingStore;
@@ -298,6 +303,8 @@ public class JarnsenMrsSectorTool extends Tool
         super(mapView, TOOL_IDENTIFIER);
         this.mapView = mapView;
         this.overlayGroup = overlayGroup;
+        this.renderGroup = new DefaultMapGroup("Jarnsen Mrs Zeichnungen");
+        this.overlayGroup.addGroup(renderGroup);
         this.prompt = TextContainer.getInstance();
         this.drawingStore = new MrsDrawingStore(mapView.getContext());
         for (MrsDrawing drawing : drawingStore.load()) {
@@ -2099,25 +2106,38 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
-        final boolean[] followSelf = {false};
+        CheckBox followSelf = new CheckBox(mapView.getContext());
+        followSelf.setText("Eigenposition folgen");
+        followSelf.setChecked(false);
+        followSelf.setMinHeight(Math.round(
+                48.0f * mapView.getResources().getDisplayMetrics().density
+        ));
+        int horizontalPadding = Math.round(
+                20.0f * mapView.getResources().getDisplayMetrics().density
+        );
+        followSelf.setPadding(horizontalPadding, 0, horizontalPadding, 0);
+        TextView explanation = new TextView(mapView.getContext());
+        explanation.setText(
+                "Ohne Häkchen wird die aktuelle Eigenposition als fester Punkt "
+                        + "übernommen. Mit Häkchen folgt die Zeichnung späteren "
+                        + "Positionsänderungen."
+        );
+        LinearLayout content = new LinearLayout(mapView.getContext());
+        content.setOrientation(LinearLayout.VERTICAL);
+        int pad = Math.round(
+                12.0f * mapView.getResources().getDisplayMetrics().density
+        );
+        content.setPadding(pad, pad, pad, 0);
+        content.addView(explanation);
+        content.addView(followSelf);
         AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
                 .setTitle((stage == SelectionStage.ORIGIN
                         ? "Startpunkt"
                         : "Zielpunkt") + " – Eigenposition")
-                .setMessage(
-                        "Ohne Häkchen wird die aktuelle Eigenposition als "
-                                + "fester Punkt übernommen. Mit Häkchen folgt "
-                                + "die Zeichnung späteren Positionsänderungen."
-                )
-                .setMultiChoiceItems(
-                        new String[]{"Eigenposition folgen"},
-                        followSelf,
-                        (ignored, which, checked) ->
-                                followSelf[which] = checked
-                )
+                .setView(content)
                 .setPositiveButton("Übernehmen", (ignored, which) -> {
                     activeDialog = null;
-                    applySelfPosition(stage, followSelf[0]);
+                    applySelfPosition(stage, followSelf.isChecked());
                 })
                 .setNegativeButton("Zurück", (ignored, which) -> {
                     activeDialog = null;
@@ -2536,6 +2556,9 @@ public class JarnsenMrsSectorTool extends Tool
         EditText label = new EditText(mapView.getContext());
         label.setHint("Optional, z. B. Mrs 1");
         label.setSingleLine(true);
+        label.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        label.setImeOptions(EditorInfo.IME_ACTION_DONE);
         label.setText(drawingLabel);
         label.setSelection(label.getText().length());
 
@@ -2594,6 +2617,19 @@ public class JarnsenMrsSectorTool extends Tool
 
         activeDialog = dialog;
         dialog.show();
+        label.requestFocus();
+        label.post(() -> {
+            InputMethodManager keyboard = (InputMethodManager)
+                    mapView.getContext().getSystemService(
+                            Context.INPUT_METHOD_SERVICE
+                    );
+            if (keyboard != null) {
+                keyboard.showSoftInput(
+                        label,
+                        InputMethodManager.SHOW_IMPLICIT
+                );
+            }
+        });
     }
 
     private void ensureDrawingLabel() {
@@ -2966,6 +3002,22 @@ public class JarnsenMrsSectorTool extends Tool
                 35.0,
                 260.0
         );
+        double targetLabelStartGap = clamp(
+                visualResolution * 72.0,
+                120.0,
+                700.0
+        );
+        double targetLabelLength = clamp(
+                visualResolution * 145.0,
+                240.0,
+                1350.0
+        );
+        double targetLabelAnchor = Math.max(
+                0.0,
+                targetDistance - targetLabelStartGap
+                        - targetLabelLength / 2.0
+                        - clamp(visualResolution * 12.0, 100.0, 420.0)
+        );
 
         if (d.showFill) {
             addSectorFill(staticGeometry.fill);
@@ -3012,7 +3064,7 @@ public class JarnsenMrsSectorTool extends Tool
             addBracketLabel(
                     own,
                     trueBearing,
-                    bracketAnchor,
+                    targetLabelAnchor,
                     bracketLabelOffset,
                     String.format(
                             Locale.GERMANY,
@@ -3066,11 +3118,18 @@ public class JarnsenMrsSectorTool extends Tool
                         | Shape.STYLE_STROKE_MASK
                         | Shape.STYLE_FILLED_MASK
         );
-        sector.setFillColor(
-                renderDrawing == null
-                        ? sectorFillColor
-                        : renderDrawing.fillColor
-        );
+        int color = renderDrawing == null
+                ? sectorFillColor
+                : renderDrawing.fillColor;
+        int alpha = renderDrawing == null
+                ? Color.alpha(color)
+                : (int) clamp(renderDrawing.fillAlpha, 0.0, 255.0);
+        sector.setFillColor(Color.argb(
+                alpha,
+                Color.red(color),
+                Color.green(color),
+                Color.blue(color)
+        ));
         addLocalItem(sector);
     }
 
@@ -3448,7 +3507,7 @@ public class JarnsenMrsSectorTool extends Tool
         item.setClickable(true);
         item.setEditable(false);
         item.setMovable(false);
-        overlayGroup.addItem(item);
+        renderGroup.addItem(item);
         overlayItems.add(item);
     }
 
@@ -3456,10 +3515,10 @@ public class JarnsenMrsSectorTool extends Tool
         MapEventDispatcher dispatcher = mapView.getMapEventDispatcher();
         for (MapItem item : new ArrayList<>(overlayItems)) {
             dispatcher.removeMapItemEventListener(item, this);
-            if (item.getGroup() != null) {
-                item.removeFromGroup();
-            }
         }
+        // Clear the dedicated render group as a whole: ATAK may retain child
+        // map items beyond their Java-side references after rapid redraws.
+        renderGroup.clearItems();
         overlayItems.clear();
     }
 
