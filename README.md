@@ -5,7 +5,7 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.4.7** ergänzt die Update-Prüfung um einen bestätigten Download des TAK.gov-signierten APKs. Die Datei wird vor dem Kopieren auf SHA-256, Plugin-Paket und Signatur geprüft und nach `/atak/support/apks/custom` abgelegt. Das Plugin installiert das APK nicht selbst. Version 0.4.6 räumt beim Neuzeichnen alte Kartenobjekte zuverlässig auf, stellt die gespeicherte Fülltransparenz wieder her, zeigt den Eigenpositions-Haken direkt an und setzt die GR/MRS-Beschriftung an den Zielpfeil. Version 0.4.5 verhindert, dass die Karte beim Ziehen des Zielpunkts mitwandert: Ein-Finger-Ziehen bewegt die Zielvorschau, Zwei-Finger-Pinch wird weiterhin an ATAK zum Zoomen übergeben und setzt das Ziel nicht fest. Nach dem Pinch startet eine neue Berührung die Platzierung. Version 0.4.4 hatte bereits verhindert, dass ein Pinch-Zoom den Zielpunkt versehentlich festsetzt. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
+Version **0.4.9** rundet die Grundrichtung auf den nächsten 50-Strich-Schritt und zeigt beim ersten Öffnen immer die vollständige Übersicht, auch ohne vorhandene Zeichnung. Pfeil und Sektorgeometrie liegen dabei auf derselben gerundeten Achse, die gewählte Entfernung bleibt erhalten. Version **0.4.8** platziert GR/MRS und Zielentfernung getrennt am Zielpfeil. Jede Angabe erscheint, sobald ihre gemessene Textbreite samt Abstand in den freien Abschnitt der Ziellinie passt. Version **0.4.7** ergänzt die Update-Prüfung um einen bestätigten Download des TAK.gov-signierten APKs. Die Datei wird vor dem Kopieren auf SHA-256, Plugin-Paket und Signatur geprüft und nach `/atak/support/apks/custom` abgelegt. Das Plugin installiert das APK nicht selbst. Version 0.4.6 räumt beim Neuzeichnen alte Kartenobjekte zuverlässig auf, stellt die gespeicherte Fülltransparenz wieder her und zeigt den Eigenpositions-Haken direkt an. Version 0.4.5 verhindert, dass die Karte beim Ziehen des Zielpunkts mitwandert: Ein-Finger-Ziehen bewegt die Zielvorschau, Zwei-Finger-Pinch wird weiterhin an ATAK zum Zoomen übergeben und setzt das Ziel nicht fest. Nach dem Pinch startet eine neue Berührung die Platzierung. Version 0.4.4 hatte bereits verhindert, dass ein Pinch-Zoom den Zielpunkt versehentlich festsetzt. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
 Nach dem Speichern bleibt die neue Zeichnung geöffnet. **Bearbeiten**,
 **Neue Zeichnung** und **Zur Übersicht** sind unmittelbar erreichbar.
 Mehrere Zeichnungen können parallel angelegt, einzeln bearbeitet, dupliziert,
@@ -78,9 +78,10 @@ Alle manuell eingegebenen Koordinaten sind MGRS.
 5. Die 500-m- und 1-km-Bögen helfen dabei, Entfernungen auf der Karte schnell
    räumlich einzuordnen.
 
-Eine mögliche Anzeige lautet zum Beispiel **MRS 01 – GR 1234 mils** und
-**Entfernung 4.350 m**. Das sind nur Beispielwerte; Richtung und Entfernung
-werden immer aus den tatsächlich gewählten Punkten berechnet.
+Eine mögliche Anzeige lautet zum Beispiel **MRS 01 – GR 1250 mils** und
+**Entfernung 4.350 m**. Das sind Beispielwerte. Die Richtung wird auf den
+nächsten 50-Strich-Schritt gerundet; die Entfernung bleibt die zum gewählten
+Zielpunkt.
 
 ### Beispiel 2 – Beweglicher Bezugspunkt
 
@@ -123,7 +124,7 @@ verwendet werden.
    Bei **Auf der Karte wählen** bleibt die Karte beim Ein-Finger-Ziehen stehen:
    Die Zielvorschau folgt dem Finger und wird erst beim Loslassen festgelegt.
    Zwei-Finger-Pinch zoomt die Karte, ohne das Ziel festzusetzen.
-4. Das Plugin zeichnet den Sektor vom gewählten Start zum gewählten Ziel.
+4. Die Grundrichtung wird auf den nächsten 50-Strich-Schritt gerundet. Pfeil und Sektor folgen der gerundeten Linie; die Entfernung zum gewählten Ziel bleibt erhalten.
 5. Optional eine Sektorfarbe auswählen: **Weiß, Rot, Gelb, Blau, Grün** oder
    **Schwarz**. Mit **Standard** oder durch Schließen der Auswahl bleibt
    die bisherige Standardfarbe erhalten.
@@ -151,16 +152,20 @@ verwendet werden.
   zugehörigen Bogen
 - genau **eine** zentrale, um 90° gedrehte `)(`-Klammer in der Mitte der
   Ziellinie
-- an der Klammer:
+- am Zielpfeil, sobald genug Platz auf der Ziellinie vorhanden ist:
   - oben: Bezeichnung und Grundrichtung als **MRS 01  GR xxxx mils**
-  - unten: tatsächliche Entfernung zum Ziel in Metern
+  - darunter: tatsächliche Entfernung zum Ziel in Metern
+  - beide Angaben werden unabhängig voneinander eingeblendet, sobald ihre
+    gemessene Textbreite auf die freie Ziellinie passt
 - rotes Zielkreuz ohne dauerhafte Zielbeschriftung
 - beim Antippen der Darstellung wird die Zielkoordinate in **MGRS** angezeigt
 
 ## Gitternord
 
-Die Karten-Geometrie wird mit dem geodätischen True-Bearing gezeichnet. Für die
-angezeigte Richtung wird ATAKs eigene Grid-Convergence-Berechnung verwendet:
+Aus Start und gewähltem Ziel wird die Richtung berechnet. ATAKs eigene
+Grid-Convergence-Berechnung wandelt sie in Gitternord um; anschließend wird auf
+den nächsten 50-Strich-Schritt gerundet. Die gerundete Richtung wird mit der
+Grid Convergence wieder in eine Kartenrichtung zurückgerechnet:
 
 `Grid Bearing = True Bearing - Grid Convergence`
 
@@ -168,8 +173,9 @@ Danach erfolgt die Umrechnung:
 
 `Strich = Grad × 6400 / 360`
 
-Damit bleibt die Linie geometrisch korrekt, während die Richtungsangabe als
-Gitternord/Strich ausgegeben wird.
+Linie, Pfeil und Sektor folgen gemeinsam der gerundeten Richtung. Die Entfernung
+zum ausgewählten Ziel bleibt erhalten; der sichtbare Endpunkt kann gegenüber
+dem Eingabepunkt seitlich um bis zu 25 Strich (1,40625°) versetzt sein.
 
 ## Technische Basis
 
@@ -266,6 +272,20 @@ die tatsächlichen Core-Klassen.
 - Update-Prüfung erkennt ausschließlich TAK.gov-signierte Jarnsen-Mrs-APK-Assets
 - Download nur nach Bestätigung; SHA-256, Paketname, Version und Signatur werden vor dem Kopieren geprüft
 - geprüfte APK-Datei nach `/atak/support/apks/custom` kopieren; keine automatische Installation
+
+## Version 0.4.9
+
+- Grundrichtung auf das 50-Strich-Raster des 6400er-Milsystems runden
+- Pfeil und Sektorgeometrie gemeinsam ausrichten, Entfernung unverändert lassen
+- beim Öffnen immer die vollständige Plugin-Übersicht zeigen, auch ohne vorhandene Zeichnungen
+
+## Version 0.4.8
+
+- GR/MRS-Beschriftung und Zielentfernung an den Zielpfeil setzen
+- jede Beschriftung anhand ihrer gemessenen Textbreite und des freien
+  Linienabschnitts zwischen Mittelklammer und Pfeil einzeln einblenden
+- Werte beim Zoomen oder Ändern des Zielabstands neu an den verfügbaren Platz
+  anpassen
 
 ## Version 0.4.3
 

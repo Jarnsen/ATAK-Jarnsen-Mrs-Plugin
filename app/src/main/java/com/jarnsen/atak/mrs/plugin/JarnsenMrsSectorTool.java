@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
@@ -339,10 +340,8 @@ public class JarnsenMrsSectorTool extends Tool
                 && originPoint != null
                 && targetPoint != null) {
             showExistingDrawingDialog();
-        } else if (!drawings.isEmpty()) {
-            showWorkspaceMenu();
         } else {
-            startNewSetup();
+            showWorkspaceMenu();
         }
         return true;
     }
@@ -3054,39 +3053,36 @@ public class JarnsenMrsSectorTool extends Tool
                         || (highlightedDrawingId != null
                         && highlightedDrawingId.equals(d.id));
 
-        double trueBearing = normalizeDegrees(own.bearingTo(target));
+        double selectedTrueBearing = normalizeDegrees(own.bearingTo(target));
+        double gridBearing = toGridBearing(
+                own,
+                target,
+                selectedTrueBearing
+        );
+        int gridMil = MrsCoreLogic.snapMilToStep(
+                degreesToMil(gridBearing),
+                50
+        );
+        double trueBearing = gridMilToTrueBearing(
+                own,
+                target,
+                gridMil
+        );
+        // Keep the visible arrow, range geometry and target marker on the
+        // snapped 50-mil axis while preserving the selected range.
+        target = GeoCalculations.pointAtDistance(
+                own,
+                trueBearing,
+                targetDistance
+        );
         StaticGeometry staticGeometry = getStaticGeometry(
                 d.id,
                 own,
                 trueBearing
         );
-        double gridBearing = toGridBearing(own, target, trueBearing);
-        int gridMil = degreesToMil(gridBearing);
         double bracketAnchor = targetDistance / 2.0;
         double visualResolution = getVisualResolution();
         lastVisualResolution = visualResolution;
-        double bracketLabelOffset = clamp(
-                visualResolution * 24.0,
-                35.0,
-                260.0
-        );
-        double targetLabelStartGap = clamp(
-                visualResolution * 72.0,
-                120.0,
-                700.0
-        );
-        double targetLabelLength = clamp(
-                visualResolution * 145.0,
-                240.0,
-                1350.0
-        );
-        double targetLabelAnchor = Math.max(
-                0.0,
-                targetDistance - targetLabelStartGap
-                        - targetLabelLength / 2.0
-                        - clamp(visualResolution * 12.0, 100.0, 420.0)
-        );
-
         if (d.showFill) {
             addSectorFill(staticGeometry.fill);
         }
@@ -3129,27 +3125,88 @@ public class JarnsenMrsSectorTool extends Tool
 
         if (d.showBracket) {
             addCenterBracket(own, trueBearing, bracketAnchor);
-            addBracketLabel(
-                    own,
-                    trueBearing,
-                    targetLabelAnchor,
-                    bracketLabelOffset,
-                    String.format(
-                            Locale.GERMANY,
-                            "%s  GR %04d mils",
-                            d.label == null || d.label.trim().isEmpty()
-                                    ? "Mrs"
-                                    : d.label.trim(),
-                            gridMil
-                    )
+            String bearingLabel = String.format(
+                    Locale.GERMANY,
+                    "%s  GR %04d mils",
+                    d.label == null || d.label.trim().isEmpty()
+                            ? "Mrs"
+                            : d.label.trim(),
+                    gridMil
             );
-            addBracketLabel(
-                    own,
-                    trueBearing,
-                    bracketAnchor,
-                    -bracketLabelOffset,
-                    formatTargetDistance(targetDistance)
+            String distanceLabel = formatTargetDistance(targetDistance);
+
+            // Put both values beside the target arrow. Show each one as soon
+            // as its own measured text width fits in the clear part of the
+            // shaft between the center bracket and the arrow head.
+            double bracketClearance = clamp(
+                    visualResolution * 12.0,
+                    50.0,
+                    520.0
             );
+            double arrowClearance = getArrowLegMeters() + clamp(
+                    visualResolution * 10.0,
+                    45.0,
+                    420.0
+            );
+            double labelStartLimit = bracketAnchor
+                    + getCenterBracketHalfWidth(bracketAnchor)
+                    + bracketClearance;
+            double labelEnd = targetDistance - arrowClearance;
+            double availableLength = Math.max(0.0, labelEnd - labelStartLimit);
+            double bearingLabelWidth = measureLabelWidthPixels(
+                    bearingLabel,
+                    16.0f
+            );
+            double distanceLabelWidth = measureLabelWidthPixels(
+                    distanceLabel,
+                    16.0f
+            );
+            double bearingLabelLength = MrsCoreLogic.annotationLengthMeters(
+                    bearingLabelWidth,
+                    16.0,
+                    visualResolution
+            );
+            double distanceLabelLength = MrsCoreLogic.annotationLengthMeters(
+                    distanceLabelWidth,
+                    16.0,
+                    visualResolution
+            );
+            double labelOffset = clamp(
+                    visualResolution * 22.0,
+                    55.0,
+                    300.0
+            );
+
+            if (MrsCoreLogic.annotationFits(
+                    availableLength,
+                    bearingLabelWidth,
+                    16.0,
+                    visualResolution
+            )) {
+                addBracketLabel(
+                        own,
+                        trueBearing,
+                        labelEnd - bearingLabelLength,
+                        bearingLabelLength,
+                        labelOffset,
+                        bearingLabel
+                );
+            }
+            if (MrsCoreLogic.annotationFits(
+                    availableLength,
+                    distanceLabelWidth,
+                    16.0,
+                    visualResolution
+            )) {
+                addBracketLabel(
+                        own,
+                        trueBearing,
+                        labelEnd - distanceLabelLength,
+                        distanceLabelLength,
+                        -labelOffset,
+                        distanceLabel
+                );
+            }
         }
 
         renderDrawing = null;
@@ -3446,14 +3503,7 @@ public class JarnsenMrsSectorTool extends Tool
         // itself follows ATAK's current meters-per-pixel resolution, so both
         // elements grow/shrink together while zooming.
         double arrowLeg = getArrowLegMeters();
-        double maxHalfWidth = Math.max(
-                20.0,
-                Math.min(650.0, anchor * 0.45)
-        );
-        double halfWidth = Math.min(
-                clamp(arrowLeg * 1.40, 28.0, 650.0),
-                maxHalfWidth
-        );
+        double halfWidth = getCenterBracketHalfWidth(anchor);
         double centerOffset = clamp(
                 arrowLeg * 0.38,
                 10.0,
@@ -3495,41 +3545,42 @@ public class JarnsenMrsSectorTool extends Tool
         ));
     }
 
+    private double getCenterBracketHalfWidth(double anchor) {
+        double arrowLeg = getArrowLegMeters();
+        double maxHalfWidth = Math.max(
+                20.0,
+                Math.min(650.0, anchor * 0.45)
+        );
+        return Math.min(
+                clamp(arrowLeg * 1.40, 28.0, 650.0),
+                maxHalfWidth
+        );
+    }
+
     /**
-     * Bearing above and distance below the centerline, directly after the
-     * central bracket. The transparent carrier line keeps both labels aligned
-     * to the selected bearing even when the map is rotated.
+     * Draw one annotation parallel to the centerline and offset from it. The
+     * transparent carrier line keeps the text aligned to the selected bearing
+     * even when the map is rotated.
      */
     private void addBracketLabel(
             GeoPoint own,
             double bearing,
-            double anchor,
+            double start,
+            double labelLength,
             double crossOffset,
             String text) {
-
-        double resolution = getVisualResolution();
-        double startGap = clamp(
-                resolution * 72.0,
-                120.0,
-                700.0
-        );
-        double labelLength = clamp(
-                resolution * 145.0,
-                240.0,
-                1350.0
-        );
 
         List<GeoPoint> pts = new ArrayList<>();
         pts.add(pointFromAxis(
                 own,
                 bearing,
-                anchor + startGap,
+                start,
                 crossOffset
         ));
         pts.add(pointFromAxis(
                 own,
                 bearing,
-                anchor + startGap + labelLength,
+                start + labelLength,
                 crossOffset
         ));
 
@@ -3544,6 +3595,14 @@ public class JarnsenMrsSectorTool extends Tool
         label.setLabelTextSize(16);
 
         addLocalItem(label);
+    }
+
+    private static double measureLabelWidthPixels(
+            String text,
+            float textSize) {
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setTextSize(textSize);
+        return paint.measureText(text);
     }
 
     private Polyline makePolyline(
@@ -3642,6 +3701,19 @@ public class JarnsenMrsSectorTool extends Tool
         }
 
         return normalizeDegrees(trueBearing - convergence);
+    }
+
+    private static double gridMilToTrueBearing(
+            GeoPoint own,
+            GeoPoint target,
+            int gridMil) {
+        double convergence = ATAKUtilities.computeGridConvergence(own, target);
+        if (Double.isNaN(convergence)) {
+            convergence = 0.0;
+        }
+        return normalizeDegrees(
+                MrsCoreLogic.milToDegrees(gridMil) + convergence
+        );
     }
 
     private static int degreesToMil(double degrees) {

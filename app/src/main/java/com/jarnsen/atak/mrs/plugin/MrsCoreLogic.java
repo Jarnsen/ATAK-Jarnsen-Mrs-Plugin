@@ -75,8 +75,51 @@ final class MrsCoreLogic {
         return mil < 0 ? mil + 6400 : mil;
     }
 
+    static int snapMilToStep(int mil, int step) {
+        if (step <= 0 || 6400 % step != 0) {
+            throw new IllegalArgumentException(
+                    "Mil step must be a positive divisor of 6400"
+            );
+        }
+        int normalized = ((mil % 6400) + 6400) % 6400;
+        return ((normalized + step / 2) / step * step) % 6400;
+    }
+
+    static double milToDegrees(int mil) {
+        return normalizeDegrees(mil * 360.0 / 6400.0);
+    }
+
     static double normalizeDegrees(double value) {
         double out = value % 360.0;
         return out < 0.0 ? out + 360.0 : out;
+    }
+
+    static double annotationLengthMeters(
+            double textWidthPixels,
+            double textSizePixels,
+            double metersPerPixel) {
+        if (!Double.isFinite(textWidthPixels)
+                || !Double.isFinite(textSizePixels)
+                || !Double.isFinite(metersPerPixel)
+                || textWidthPixels < 0.0
+                || textSizePixels <= 0.0
+                || metersPerPixel <= 0.0) {
+            return Double.POSITIVE_INFINITY;
+        }
+        return (textWidthPixels + 2.0 * textSizePixels) * metersPerPixel;
+    }
+
+    static boolean annotationFits(
+            double availableMeters,
+            double textWidthPixels,
+            double textSizePixels,
+            double metersPerPixel) {
+        return Double.isFinite(availableMeters)
+                && availableMeters >= 0.0
+                && availableMeters >= annotationLengthMeters(
+                        textWidthPixels,
+                        textSizePixels,
+                        metersPerPixel
+                );
     }
 }
