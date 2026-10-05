@@ -4,8 +4,10 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.text.Editable;
@@ -17,7 +19,6 @@ import android.text.style.ForegroundColorSpan;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
-import android.content.Context;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -1549,36 +1550,51 @@ public class JarnsenMrsSectorTool extends Tool
                         mapView.getContext(),
                         "Neue Jarnsen-Mrs-Version "
                                 + result.latestVersion
-                                + " verfügbar.",
+                                + " verfügbar. Im Plugin-Menü unter "
+                                + "‚Nach Update suchen‘ herunterladen.",
                         Toast.LENGTH_LONG
                 ).show();
                 return;
             }
 
-            AlertDialog dialog = new AlertDialog.Builder(mapView.getContext())
-                    .setTitle("Update verfügbar")
-                    .setMessage(
-                            "Version " + result.latestVersion
-                                    + " ist auf GitHub verfügbar."
+            boolean apkAvailable = result.apkDownloadUrl != null
+                    && result.apkSha256 != null
+                    && result.apkFileName != null;
+            String message = "Version " + result.latestVersion
+                    + " ist verfügbar."
+                    + (apkAvailable
+                    ? " Das TAK.gov-signierte APK wird geprüft und nach "
+                    + "/atak/support/apks/custom kopiert. Es wird nicht "
+                    + "automatisch installiert."
+                    : " Für dieses Release gibt es noch kein geprüftes "
+                    + "TAK.gov-APK; du kannst die Release-Seite öffnen.");
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(
+                    mapView.getContext()
+            ).setTitle("Update verfügbar")
+                    .setMessage(message)
+                    .setPositiveButton(
+                            apkAvailable ? "APK herunterladen" : "Release öffnen",
+                            (ignored, which) -> {
+                                activeDialog = null;
+                                if (apkAvailable) {
+                                    downloadUpdateToAtakFolder(result);
+                                } else {
+                                    openReleasePage(result.releaseUrl);
+                                }
+                            }
                     )
-                    .setPositiveButton("Link kopieren", (ignored, which) -> {
-                        activeDialog = null;
-                        copyTextToClipboard(
-                                "Jarnsen Mrs Release",
-                                result.releaseUrl
-                        );
-                        Toast.makeText(
-                                mapView.getContext(),
-                                "Release-Link kopiert.",
-                                Toast.LENGTH_SHORT
-                        ).show();
-                        showWorkspaceMenu();
-                    })
-                    .setNegativeButton("Zurück", (ignored, which) -> {
+                    .setNegativeButton("Später", (ignored, which) -> {
                         activeDialog = null;
                         showWorkspaceMenu();
-                    })
-                    .create();
+                    });
+            if (apkAvailable) {
+                builder.setNeutralButton("Release-Seite", (ignored, which) -> {
+                    activeDialog = null;
+                    openReleasePage(result.releaseUrl);
+                });
+            }
+            AlertDialog dialog = builder.create();
             activeDialog = dialog;
             dialog.show();
             return;
@@ -1601,6 +1617,58 @@ public class JarnsenMrsSectorTool extends Tool
                 Toast.LENGTH_LONG
         ).show();
         showWorkspaceMenu();
+    }
+
+    private void downloadUpdateToAtakFolder(
+            MrsUpdateChecker.Result update) {
+        Toast.makeText(
+                mapView.getContext(),
+                "Lade das geprüfte Update in ATAKs Plugin-Ordner …",
+                Toast.LENGTH_LONG
+        ).show();
+        MrsPluginUpdateDownloader.downloadToAtakFolder(
+                mapView.getContext(),
+                update,
+                result -> {
+                    if (result.success) {
+                        Toast.makeText(
+                                mapView.getContext(),
+                                "Update kopiert: " + result.path
+                                        + " — jetzt in ATAK unter „Lokales "
+                                        + "APK-Verzeichnis“ auswählen.",
+                                Toast.LENGTH_LONG
+                        ).show();
+                    } else {
+                        lastDiagnosticError = "Update-Download: "
+                                + result.error;
+                        Toast.makeText(
+                                mapView.getContext(),
+                                result.error,
+                                Toast.LENGTH_LONG
+                        ).show();
+                    }
+                    showWorkspaceMenu();
+                }
+        );
+    }
+
+    private void openReleasePage(String releaseUrl) {
+        try {
+            Intent intent = new Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse(releaseUrl == null
+                            ? MrsUpdateChecker.RELEASES_URL
+                            : releaseUrl)
+            );
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            mapView.getContext().startActivity(intent);
+        } catch (Exception e) {
+            Toast.makeText(
+                    mapView.getContext(),
+                    "Release-Seite konnte nicht geöffnet werden.",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
     }
 
     private void showPointSourceDialog(final SelectionStage stage) {

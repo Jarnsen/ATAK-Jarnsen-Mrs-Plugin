@@ -5,7 +5,7 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.4.5** verhindert, dass die Karte beim Ziehen des Zielpunkts mitwandert: Ein-Finger-Ziehen bewegt die Zielvorschau, Zwei-Finger-Pinch wird weiterhin an ATAK zum Zoomen übergeben und setzt das Ziel nicht fest. Nach dem Pinch startet eine neue Berührung die Platzierung. Version 0.4.4 hatte bereits verhindert, dass ein Pinch-Zoom den Zielpunkt versehentlich festsetzt. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
+Version **0.4.7** ergänzt die Update-Prüfung um einen bestätigten Download des TAK.gov-signierten APKs. Die Datei wird vor dem Kopieren auf SHA-256, Plugin-Paket und Signatur geprüft und nach `/atak/support/apks/custom` abgelegt. Das Plugin installiert das APK nicht selbst. Version 0.4.6 räumt beim Neuzeichnen alte Kartenobjekte zuverlässig auf, stellt die gespeicherte Fülltransparenz wieder her, zeigt den Eigenpositions-Haken direkt an und setzt die GR/MRS-Beschriftung an den Zielpfeil. Version 0.4.5 verhindert, dass die Karte beim Ziehen des Zielpunkts mitwandert: Ein-Finger-Ziehen bewegt die Zielvorschau, Zwei-Finger-Pinch wird weiterhin an ATAK zum Zoomen übergeben und setzt das Ziel nicht fest. Nach dem Pinch startet eine neue Berührung die Platzierung. Version 0.4.4 hatte bereits verhindert, dass ein Pinch-Zoom den Zielpunkt versehentlich festsetzt. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
 Nach dem Speichern bleibt die neue Zeichnung geöffnet. **Bearbeiten**,
 **Neue Zeichnung** und **Zur Übersicht** sind unmittelbar erreichbar.
 Mehrere Zeichnungen können parallel angelegt, einzeln bearbeitet, dupliziert,
@@ -38,6 +38,10 @@ Alle manuell eingegebenen Koordinaten sind MGRS.
   bleiben nach einem ATAK-Neustart erhalten.
 - **Datenaustausch und Diagnose:** JSON-Import/-Export sowie Diagnoseausgabe mit
   Plugin-Version, Zertifikat, Cache- und Zeichnungsstatus.
+- **Update-Hinweis und Ablage:** neuere Releases prüfen und das per SHA-256,
+  Plugin-Paket und Signatur validierte TAK.gov-APK nach Bestätigung in ATAKs
+  lokales Plugin-Verzeichnis `/atak/support/apks/custom` kopieren. Die
+  Installation wählst du anschließend in ATAK selbst aus.
 
 ## Realistische Einsatzbeispiele
 
@@ -245,6 +249,23 @@ die tatsächlichen Core-Klassen.
 - Pinch-Zoom wird während der Zielauswahl als Karten-Skalierung erkannt. Die zugehörigen Release-/Click-Ereignisse schließen die Zielauswahl nicht mehr.
 - Nach dem Zoomen kann der Zielpunkt weiter auf der Karte gesetzt oder gezogen werden; normale Einzelberührungen übernehmen ihn weiterhin wie zuvor.
 - Build und JVM-Regressionstests laufen in GitHub Actions. Touch-Verhalten zusätzlich auf ATAK-CIV 5.6.0 prüfen.
+
+## Version 0.4.5
+
+- Zielpunkt mit Ein-Finger-Ziehen platzieren, ohne dass die Karte mitwandert
+- Zwei-Finger-Pinch bleibt ATAK zum Zoomen überlassen
+
+## Version 0.4.6
+
+- veraltete Sektor-Overlays beim Neuzeichnen vollständig leeren
+- Transparenz, manuelle Beschriftung und sichtbare Eigenpositions-Auswahl korrigieren
+- GR/MRS-Beschriftung näher an den Zielpfeil setzen
+
+## Version 0.4.7
+
+- Update-Prüfung erkennt ausschließlich TAK.gov-signierte Jarnsen-Mrs-APK-Assets
+- Download nur nach Bestätigung; SHA-256, Paketname, Version und Signatur werden vor dem Kopieren geprüft
+- geprüfte APK-Datei nach `/atak/support/apks/custom` kopieren; keine automatische Installation
 
 ## Version 0.4.3
 

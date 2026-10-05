@@ -23,16 +23,25 @@ final class MrsUpdateChecker {
         final boolean updateAvailable;
         final String latestVersion;
         final String releaseUrl;
+        final String apkDownloadUrl;
+        final String apkFileName;
+        final String apkSha256;
         final String error;
 
         Result(
                 boolean updateAvailable,
                 String latestVersion,
                 String releaseUrl,
+                String apkDownloadUrl,
+                String apkFileName,
+                String apkSha256,
                 String error) {
             this.updateAvailable = updateAvailable;
             this.latestVersion = latestVersion;
             this.releaseUrl = releaseUrl;
+            this.apkDownloadUrl = apkDownloadUrl;
+            this.apkFileName = apkFileName;
+            this.apkSha256 = apkSha256;
             this.error = error;
         }
     }
@@ -70,6 +79,9 @@ final class MrsUpdateChecker {
                         false,
                         null,
                         RELEASES_URL,
+                        null,
+                        null,
+                        null,
                         "GitHub-Repository ist nicht öffentlich erreichbar."
                 );
             }
@@ -78,44 +90,24 @@ final class MrsUpdateChecker {
                         false,
                         null,
                         RELEASES_URL,
+                        null,
+                        null,
+                        null,
                         "GitHub HTTP " + code
                 );
             }
 
             String body = read(connection.getInputStream());
             JSONObject release = new JSONObject(body);
-            String tag = release.optString("tag_name", "");
-            String latest = stripVersionPrefix(tag);
-            String releaseUrl = release.optString(
-                    "html_url",
-                    RELEASES_URL
-            );
-
-            if (latest.isEmpty()) {
-                return new Result(
-                        false,
-                        null,
-                        releaseUrl,
-                        "Keine Versionsnummer im Release gefunden."
-                );
-            }
-
-            boolean newer = compareVersions(
-                    latest,
-                    stripVersionPrefix(currentVersion)
-            ) > 0;
-
-            return new Result(
-                    newer,
-                    latest,
-                    releaseUrl,
-                    null
-            );
+            return parseRelease(release, currentVersion);
         } catch (Exception e) {
             return new Result(
                     false,
                     null,
                     RELEASES_URL,
+                    null,
+                    null,
+                    null,
                     e.getClass().getSimpleName()
             );
         } finally {
@@ -123,6 +115,60 @@ final class MrsUpdateChecker {
                 connection.disconnect();
             }
         }
+    }
+
+    static Result parseRelease(JSONObject release, String currentVersion) {
+        String tag = release.optString("tag_name", "");
+        String latest = stripVersionPrefix(tag);
+        String releaseUrl = release.optString("html_url", RELEASES_URL);
+        String downloadUrl = null;
+        String apkFileName = null;
+        String apkSha256 = null;
+        org.json.JSONArray assets = release.optJSONArray("assets");
+        if (assets != null) {
+            for (int i = 0; i < assets.length(); i++) {
+                JSONObject asset = assets.optJSONObject(i);
+                if (asset == null) {
+                    continue;
+                }
+                String name = asset.optString("name", "");
+                String normalized = name.toLowerCase(Locale.US);
+                if (normalized.startsWith("atak-plugin-jarnsen-mrs-")
+                        && normalized.endsWith("-takgov.apk")) {
+                    String candidateUrl = asset.optString(
+                            "browser_download_url",
+                            ""
+                    );
+                    String digest = asset.optString("digest", "");
+                    String officialPrefix = "https://github.com/"
+                            + "Jarnsen/ATAK-Jarnsen-Mrs-Plugin/releases/download/";
+                    if (candidateUrl.startsWith(officialPrefix)
+                            && digest.matches(
+                            "(?i)^sha256:[0-9a-f]{64}$")) {
+                        downloadUrl = candidateUrl;
+                        apkFileName = name;
+                        apkSha256 = digest.substring("sha256:".length());
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (latest.isEmpty()) {
+            return new Result(
+                    false, null, releaseUrl, downloadUrl, apkFileName,
+                    apkSha256, "Keine Versionsnummer im Release gefunden."
+            );
+        }
+
+        boolean newer = compareVersions(
+                latest,
+                stripVersionPrefix(currentVersion)
+        ) > 0;
+        return new Result(
+                newer, latest, releaseUrl, downloadUrl, apkFileName,
+                apkSha256, null
+        );
     }
 
     static int compareVersions(String left, String right) {
