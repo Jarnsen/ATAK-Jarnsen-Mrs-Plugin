@@ -39,4 +39,32 @@ public class MrsCoreLogicTest {
                 )
         );
     }
+
+    @Test
+    public void annotationAppearsWhenMeasuredTextFitsAvailableLine() {
+        double requiredMeters = MrsCoreLogic.annotationLengthMeters(
+                100.0,
+                16.0,
+                2.0
+        );
+        assertEquals(264.0, requiredMeters, 0.0);
+        assertTrue(MrsCoreLogic.annotationFits(
+                requiredMeters,
+                100.0,
+                16.0,
+                2.0
+        ));
+        org.junit.Assert.assertFalse(MrsCoreLogic.annotationFits(
+                requiredMeters - 0.1,
+                100.0,
+                16.0,
+                2.0
+        ));
+        org.junit.Assert.assertFalse(MrsCoreLogic.annotationFits(
+                Double.POSITIVE_INFINITY,
+                100.0,
+                16.0,
+                2.0
+        ));
+    }
 }
