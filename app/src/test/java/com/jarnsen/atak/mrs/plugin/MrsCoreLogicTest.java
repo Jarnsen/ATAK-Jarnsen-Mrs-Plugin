@@ -24,6 +24,17 @@ public class MrsCoreLogicTest {
     }
 
     @Test
+    public void gridDirectionSnapsToNearestFiftyMilAndWrapsAtNorth() {
+        assertEquals(0, MrsCoreLogic.snapMilToStep(0, 50));
+        assertEquals(0, MrsCoreLogic.snapMilToStep(24, 50));
+        assertEquals(50, MrsCoreLogic.snapMilToStep(26, 50));
+        assertEquals(6350, MrsCoreLogic.snapMilToStep(6374, 50));
+        assertEquals(0, MrsCoreLogic.snapMilToStep(6375, 50));
+        assertEquals(50, MrsCoreLogic.snapMilToStep(6450, 50));
+        assertEquals(2.8125, MrsCoreLogic.milToDegrees(50), 0.000001);
+    }
+
+    @Test
     public void compactMgrsIsCanonicalized() {
         assertEquals(
                 "32U MV 12345 67890",
