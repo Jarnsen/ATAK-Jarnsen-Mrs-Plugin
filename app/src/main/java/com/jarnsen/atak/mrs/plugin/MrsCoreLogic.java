@@ -75,6 +75,20 @@ final class MrsCoreLogic {
         return mil < 0 ? mil + 6400 : mil;
     }
 
+    static int snapMilToStep(int mil, int step) {
+        if (step <= 0 || 6400 % step != 0) {
+            throw new IllegalArgumentException(
+                    "Mil step must be a positive divisor of 6400"
+            );
+        }
+        int normalized = ((mil % 6400) + 6400) % 6400;
+        return ((normalized + step / 2) / step * step) % 6400;
+    }
+
+    static double milToDegrees(int mil) {
+        return normalizeDegrees(mil * 360.0 / 6400.0);
+    }
+
     static double normalizeDegrees(double value) {
         double out = value % 360.0;
         return out < 0.0 ? out + 360.0 : out;
