@@ -12,6 +12,8 @@ import java.util.Locale;
 
 final class MrsUpdateChecker {
 
+    private static final int MAX_RESPONSE_CHARS = 1_000_000;
+
     static final String RELEASES_URL =
             "https://github.com/Jarnsen/ATAK-Jarnsen-Mrs-Plugin/releases";
 
@@ -133,8 +135,13 @@ final class MrsUpdateChecker {
                 }
                 String name = asset.optString("name", "");
                 String normalized = name.toLowerCase(Locale.US);
+                // Existing published APKs use names such as
+                // ATAK-Plugin-Jarnsen-Mrs-0.4.9-ATAK-5.6.0.apk. Do not
+                // require a TAKgov suffix: GitHub release assets already
+                // come from this repository, and the downloader verifies
+                // the digest, package id, signing certificate and version.
                 if (normalized.startsWith("atak-plugin-jarnsen-mrs-")
-                        && normalized.endsWith("-takgov.apk")) {
+                        && normalized.endsWith(".apk")) {
                     String candidateUrl = asset.optString(
                             "browser_download_url",
                             ""
@@ -229,6 +236,9 @@ final class MrsUpdateChecker {
             String line;
             while ((line = reader.readLine()) != null) {
                 out.append(line);
+                if (out.length() > MAX_RESPONSE_CHARS) {
+                    throw new IllegalStateException("Antwort zu groß");
+                }
             }
         }
         return out.toString();

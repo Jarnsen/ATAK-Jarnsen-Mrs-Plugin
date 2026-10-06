@@ -4,8 +4,11 @@ import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
+import android.content.pm.SigningInfo;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Base64;
 
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 
@@ -18,16 +21,25 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
-import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Downloads the TAK.gov-signed APK into ATAK's local custom plugin folder. */
+/**
+ * Downloads the TAK.gov-signed APK into ATAK's local custom plugin folder.
+ *
+ * The APK is first downloaded into the plugin's private cache directory and
+ * fully verified there (SHA-256, package name, signing certificate, version
+ * newer than the installed one). Only then it is copied into the shared ATAK
+ * folder and the copy is hashed again before it is moved into place.
+ */
 final class MrsPluginUpdateDownloader {
 
     private static final long MAX_APK_BYTES = 100L * 1024L * 1024L;
     private static final String ATAK_CUSTOM_PLUGIN_DIRECTORY =
             "support/apks/custom";
+    private static final String STAGING_PREFIX = ".jarnsen-mrs-update-";
     private static final AtomicBoolean DOWNLOAD_IN_PROGRESS =
             new AtomicBoolean(false);
 
@@ -66,11 +78,15 @@ final class MrsPluginUpdateDownloader {
             Result result;
             try {
                 result = download(context, update);
+            } catch (RuntimeException e) {
+                result = failure("Download/Kopie fehlgeschlagen: "
+                        + e.getClass().getSimpleName());
             } finally {
                 DOWNLOAD_IN_PROGRESS.set(false);
             }
+            final Result finalResult = result;
             new Handler(Looper.getMainLooper()).post(
-                    () -> callback.onComplete(result)
+                    () -> callback.onComplete(finalResult)
             );
         }, "JarnsenMrsUpdateDownload").start();
     }
@@ -81,12 +97,13 @@ final class MrsPluginUpdateDownloader {
         if (update == null
                 || update.apkDownloadUrl == null
                 || update.apkFileName == null
-                || update.apkSha256 == null) {
+                || update.apkSha256 == null
+                || update.latestVersion == null) {
             return failure("Für dieses Release fehlt das geprüfte TAK.gov-APK.");
         }
         String normalizedName = update.apkFileName.toLowerCase(Locale.US);
         if (!normalizedName.matches(
-                "atak-plugin-jarnsen-mrs-[a-z0-9._-]+-takgov\\.apk")) {
+                "atak-plugin-jarnsen-mrs-[a-z0-9._-]+\\.apk")) {
             return failure("Der APK-Dateiname ist ungültig.");
         }
         String expectedPrefix = "https://github.com/"
@@ -104,14 +121,25 @@ final class MrsPluginUpdateDownloader {
                 && !destinationDirectory.mkdirs())) {
             return failure("ATAK-Pluginordner kann nicht angelegt werden.");
         }
+        File cacheDirectory = context.getCacheDir();
+        if (cacheDirectory == null
+                || (!cacheDirectory.isDirectory()
+                && !cacheDirectory.mkdirs())) {
+            return failure("Zwischenspeicher ist nicht verfügbar.");
+        }
 
-        File temporary = null;
+        // Leftovers of an interrupted earlier run (only one download runs at
+        // a time, see DOWNLOAD_IN_PROGRESS).
+        removeStaleTemporaryFiles(destinationDirectory);
+
+        File downloaded = null;
+        File staged = null;
         HttpURLConnection connection = null;
         try {
-            temporary = File.createTempFile(
-                    ".jarnsen-mrs-update-",
-                    ".part",
-                    destinationDirectory
+            downloaded = File.createTempFile(
+                    "jarnsen-mrs-update-",
+                    ".apk",
+                    cacheDirectory
             );
             connection = (HttpURLConnection) new URL(
                     update.apkDownloadUrl
@@ -144,7 +172,7 @@ final class MrsPluginUpdateDownloader {
             try (InputStream input = new BufferedInputStream(
                     connection.getInputStream());
                  BufferedOutputStream output = new BufferedOutputStream(
-                         new FileOutputStream(temporary))) {
+                         new FileOutputStream(downloaded))) {
                 byte[] buffer = new byte[16 * 1024];
                 long total = 0L;
                 int read;
@@ -161,21 +189,22 @@ final class MrsPluginUpdateDownloader {
                 }
             }
 
-            if (!update.apkSha256.equalsIgnoreCase(sha256(temporary))) {
+            // All checks run on the private copy.
+            if (!update.apkSha256.equalsIgnoreCase(sha256(downloaded))) {
                 return failure("SHA-256-Prüfung der APK ist fehlgeschlagen.");
             }
-            PackageInfo packageInfo = context.getPackageManager()
-                    .getPackageArchiveInfo(temporary.getAbsolutePath(), 0);
+            PackageManager packageManager = context.getPackageManager();
+            PackageInfo packageInfo = packageManager.getPackageArchiveInfo(
+                    downloaded.getAbsolutePath(),
+                    0
+            );
             if (packageInfo == null
                     || !BuildConfig.APPLICATION_ID.equals(
                     packageInfo.packageName)) {
                 return failure("Die heruntergeladene Datei ist nicht das "
                         + "Jarnsen-Mrs-Plugin.");
             }
-            if (!hasSameSigningCertificate(
-                    context.getPackageManager(),
-                    temporary
-            )) {
+            if (!hasSameSigningCertificate(packageManager, downloaded)) {
                 return failure("Die APK-Signatur stimmt nicht mit der "
                         + "installierten Jarnsen-Mrs-Version überein.");
             }
@@ -185,6 +214,27 @@ final class MrsPluginUpdateDownloader {
             if (!update.latestVersion.equals(apkVersion)) {
                 return failure("APK-Version und Release-Version stimmen "
                         + "nicht überein.");
+            }
+            String installedVersion = MrsUpdateChecker.stripVersionPrefix(
+                    BuildConfig.VERSION_NAME
+            );
+            if (MrsUpdateChecker.compareVersions(
+                    apkVersion,
+                    installedVersion) <= 0) {
+                return failure("Die APK ist nicht neuer als die "
+                        + "installierte Version.");
+            }
+
+            // Copy into the shared ATAK folder and verify the copy again.
+            staged = File.createTempFile(
+                    STAGING_PREFIX,
+                    ".part",
+                    destinationDirectory
+            );
+            copyFile(downloaded, staged);
+            if (!update.apkSha256.equalsIgnoreCase(sha256(staged))) {
+                return failure("SHA-256-Prüfung der kopierten APK ist "
+                        + "fehlgeschlagen.");
             }
 
             File destination = new File(
@@ -200,7 +250,7 @@ final class MrsPluginUpdateDownloader {
                 return failure("Vorhandene Update-Datei kann nicht ersetzt "
                         + "werden.");
             }
-            if (!temporary.renameTo(destination)) {
+            if (!staged.renameTo(destination)) {
                 if (backup.exists()) {
                     //noinspection ResultOfMethodCallIgnored
                     backup.renameTo(destination);
@@ -208,7 +258,7 @@ final class MrsPluginUpdateDownloader {
                 return failure("Die geprüfte APK konnte nicht in den "
                         + "ATAK-Pluginordner kopiert werden.");
             }
-            temporary = null;
+            staged = null;
             if (backup.exists()) {
                 //noinspection ResultOfMethodCallIgnored
                 backup.delete();
@@ -222,10 +272,29 @@ final class MrsPluginUpdateDownloader {
             if (connection != null) {
                 connection.disconnect();
             }
-            if (temporary != null && temporary.exists()) {
+            if (downloaded != null && downloaded.exists()) {
                 //noinspection ResultOfMethodCallIgnored
-                temporary.delete();
+                downloaded.delete();
             }
+            if (staged != null && staged.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                staged.delete();
+            }
+        }
+    }
+
+    private static void removeStaleTemporaryFiles(File directory) {
+        File[] files = directory.listFiles((dir, name) ->
+                (name.startsWith(STAGING_PREFIX) && name.endsWith(".part"))
+                        || (name.toLowerCase(Locale.US)
+                        .startsWith("atak-plugin-jarnsen-mrs-")
+                        && name.endsWith(".apk.bak")));
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            //noinspection ResultOfMethodCallIgnored
+            file.delete();
         }
     }
 
@@ -248,6 +317,19 @@ final class MrsPluginUpdateDownloader {
         }
     }
 
+    private static void copyFile(File from, File to) throws Exception {
+        try (InputStream input = new BufferedInputStream(
+                new FileInputStream(from));
+             BufferedOutputStream output = new BufferedOutputStream(
+                     new FileOutputStream(to))) {
+            byte[] buffer = new byte[16 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+        }
+    }
+
     private static String sha256(File file) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try (InputStream input = new BufferedInputStream(
@@ -265,32 +347,57 @@ final class MrsPluginUpdateDownloader {
         return hex.toString();
     }
 
+    /** PackageManager flag that returns the signing certificates. */
     @SuppressWarnings("deprecation")
+    static int signatureFlags() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                ? PackageManager.GET_SIGNING_CERTIFICATES
+                : PackageManager.GET_SIGNATURES;
+    }
+
+    /** Current signing certificates of a package (null if unavailable). */
+    @SuppressWarnings("deprecation")
+    static Signature[] signaturesOf(PackageInfo info) {
+        if (info == null) {
+            return null;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            SigningInfo signingInfo = info.signingInfo;
+            return signingInfo == null
+                    ? null
+                    : signingInfo.getApkContentsSigners();
+        }
+        return info.signatures;
+    }
+
+    private static Set<String> signerSet(PackageInfo info) {
+        Set<String> out = new HashSet<>();
+        Signature[] signatures = signaturesOf(info);
+        if (signatures != null) {
+            for (Signature signature : signatures) {
+                out.add(Base64.encodeToString(
+                        signature.toByteArray(),
+                        Base64.NO_WRAP
+                ));
+            }
+        }
+        return out;
+    }
+
     private static boolean hasSameSigningCertificate(
             PackageManager packageManager,
             File apk) throws Exception {
         PackageInfo installed = packageManager.getPackageInfo(
                 BuildConfig.APPLICATION_ID,
-                PackageManager.GET_SIGNATURES
+                signatureFlags()
         );
         PackageInfo candidate = packageManager.getPackageArchiveInfo(
                 apk.getAbsolutePath(),
-                PackageManager.GET_SIGNATURES
+                signatureFlags()
         );
-        Signature[] installedSignatures = installed.signatures;
-        Signature[] candidateSignatures = candidate == null
-                ? null
-                : candidate.signatures;
-        if (installedSignatures == null
-                || candidateSignatures == null
-                || installedSignatures.length == 0
-                || candidateSignatures.length == 0) {
-            return false;
-        }
-        return Arrays.equals(
-                installedSignatures[0].toByteArray(),
-                candidateSignatures[0].toByteArray()
-        );
+        Set<String> installedSigners = signerSet(installed);
+        return !installedSigners.isEmpty()
+                && installedSigners.equals(signerSet(candidate));
     }
 
     private static Result failure(String error) {

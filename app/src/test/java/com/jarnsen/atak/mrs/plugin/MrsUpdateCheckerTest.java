@@ -26,7 +26,7 @@ public class MrsUpdateCheckerTest {
     }
 
     @Test
-    public void releaseUsesOnlyTheTakgovSignedPluginApkAsset() throws Exception {
+    public void releaseFindsThePublishedAtaKPluginApkName() throws Exception {
         String checksum = "ab".repeat(32);
         JSONObject release = new JSONObject(
                 "{\"tag_name\":\"v0.4.7\","
@@ -39,11 +39,11 @@ public class MrsUpdateCheckerTest {
                         + "v0.4.7/debug.apk\","
                         + "\"digest\":\"sha256:" + checksum + "\"},"
                         + "{\"name\":\"ATAK-Plugin-Jarnsen-Mrs-0.4.7-"
-                        + "5.6.0-TAKgov.apk\","
+                        + "ATAK-5.6.0.apk\","
                         + "\"browser_download_url\":\"https://github.com/"
                         + "Jarnsen/ATAK-Jarnsen-Mrs-Plugin/releases/download/"
                         + "v0.4.7/ATAK-Plugin-Jarnsen-Mrs-0.4.7-"
-                        + "5.6.0-TAKgov.apk\","
+                        + "ATAK-5.6.0.apk\","
                         + "\"digest\":\"sha256:" + checksum + "\"}]}"
         );
 
@@ -55,7 +55,7 @@ public class MrsUpdateCheckerTest {
         assertTrue(result.updateAvailable);
         assertEquals("0.4.7", result.latestVersion);
         assertEquals(
-                "ATAK-Plugin-Jarnsen-Mrs-0.4.7-5.6.0-TAKgov.apk",
+                "ATAK-Plugin-Jarnsen-Mrs-0.4.7-ATAK-5.6.0.apk",
                 result.apkFileName
         );
         assertEquals(checksum, result.apkSha256);

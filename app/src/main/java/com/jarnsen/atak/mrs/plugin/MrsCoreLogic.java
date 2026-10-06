@@ -16,7 +16,8 @@ final class MrsCoreLogic {
             HALF_SECTOR_MIL * 360.0 / 6400.0;
 
     private static final Pattern MGRS_PATTERN = Pattern.compile(
-            "^(\\d{1,2})([C-HJ-NP-X])([A-HJ-NP-Z]{2})(\\d{0,10})$"
+            "^(0?[1-9]|[1-5]\\d|60)([C-HJ-NP-X])"
+                    + "([A-HJ-NP-Z][A-HJ-NP-V])(\\d{0,10})$"
     );
 
     private MrsCoreLogic() {
@@ -67,6 +68,10 @@ final class MrsCoreLogic {
         return (digits.length() & 1) == 0;
     }
 
+    /**
+     * Converts degrees to NATO mils (0..6399). Non-finite input yields 0;
+     * callers only pass bearings between two distinct, usable points.
+     */
     static int degreesToMil(double degrees) {
         int mil = (int) Math.round(
                 normalizeDegrees(degrees) * 6400.0 / 360.0

@@ -5,11 +5,17 @@ frei gewählten Start- und Zielpunkt.
 
 ## Aktueller Stand
 
-Version **0.4.9** rundet die Grundrichtung auf den nächsten 50-Strich-Schritt und zeigt beim ersten Öffnen immer die vollständige Übersicht, auch ohne vorhandene Zeichnung. Pfeil und Sektorgeometrie liegen dabei auf derselben gerundeten Achse, die gewählte Entfernung bleibt erhalten. Version **0.4.8** platziert GR/MRS und Zielentfernung getrennt am Zielpfeil. Jede Angabe erscheint, sobald ihre gemessene Textbreite samt Abstand in den freien Abschnitt der Ziellinie passt. Version **0.4.7** ergänzt die Update-Prüfung um einen bestätigten Download des TAK.gov-signierten APKs. Die Datei wird vor dem Kopieren auf SHA-256, Plugin-Paket und Signatur geprüft und nach `/atak/support/apks/custom` abgelegt. Das Plugin installiert das APK nicht selbst. Version 0.4.6 räumt beim Neuzeichnen alte Kartenobjekte zuverlässig auf, stellt die gespeicherte Fülltransparenz wieder her und zeigt den Eigenpositions-Haken direkt an. Version 0.4.5 verhindert, dass die Karte beim Ziehen des Zielpunkts mitwandert: Ein-Finger-Ziehen bewegt die Zielvorschau, Zwei-Finger-Pinch wird weiterhin an ATAK zum Zoomen übergeben und setzt das Ziel nicht fest. Nach dem Pinch startet eine neue Berührung die Platzierung. Version 0.4.4 hatte bereits verhindert, dass ein Pinch-Zoom den Zielpunkt versehentlich festsetzt. Version 0.4.3 korrigiert zusätzlich die Menüanzeige auf Geräten, auf denen die Zeichnungsaktionen durch eine gleichzeitig angezeigte Dialogmeldung verdeckt wurden. Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar:
-Nach dem Speichern bleibt die neue Zeichnung geöffnet. **Bearbeiten**,
-**Neue Zeichnung** und **Zur Übersicht** sind unmittelbar erreichbar.
-Mehrere Zeichnungen können parallel angelegt, einzeln bearbeitet, dupliziert,
-ein-/ausgeblendet und gelöscht werden.
+Version **0.4.10** ist ein Fehlerkorrektur- und Härtungs-Release auf Basis von
+0.4.9 (siehe [Version 0.4.10](#version-0410)). Die Grundrichtung wird weiterhin
+auf den nächsten 50-Strich-Schritt gerundet (0.4.9), GR/MRS und Zielentfernung
+stehen einzeln am Zielpfeil (0.4.8). Frühere Änderungen stehen im
+Änderungsverlauf weiter unten.
+
+Die Mehrzeichnungs-Verwaltung bleibt direkt bedienbar: Nach dem Speichern bleibt
+die neue Zeichnung geöffnet. **Bearbeiten**, **Neue Zeichnung** und
+**Zur Übersicht** sind unmittelbar erreichbar. Mehrere Zeichnungen können
+parallel angelegt, einzeln bearbeitet, dupliziert, ein-/ausgeblendet und
+gelöscht werden.
 
 Start und Ziel werden über **Eigenposition**, einen vorhandenen
 **ATAK-Marker**, **MGRS** oder direkt auf der **Karte** gesetzt.
@@ -35,13 +41,19 @@ Alle manuell eingegebenen Koordinaten sind MGRS.
 - **ATAK-Marker dauerhaft verknüpfen:** Ausgewählte bewegliche Marker werden
   über ihre UID je Zeichnung gespeichert und nach dem Neustart wiedergefunden.
 - **Dauerhafte Arbeitsstände:** Zeichnungen und bis zu zehn Undo-/Redo-Zustände
-  bleiben nach einem ATAK-Neustart erhalten.
+  bleiben nach einem ATAK-Neustart erhalten und liegen in einer eigenen
+  Plugin-Datei, nicht in ATAKs globalen Einstellungen.
 - **Datenaustausch und Diagnose:** JSON-Import/-Export sowie Diagnoseausgabe mit
   Plugin-Version, Zertifikat, Cache- und Zeichnungsstatus.
-- **Update-Hinweis und Ablage:** neuere Releases prüfen und das per SHA-256,
-  Plugin-Paket und Signatur validierte TAK.gov-APK nach Bestätigung in ATAKs
-  lokales Plugin-Verzeichnis `/atak/support/apks/custom` kopieren. Die
-  Installation wählst du anschließend in ATAK selbst aus.
+- **Update-Hinweis und Ablage:** neuere Releases manuell prüfen (die
+  automatische tägliche Prüfung ist standardmäßig aus und im Plugin-Menü
+  einschaltbar) und das per SHA-256, Plugin-Paket, TAK.gov-Signatur und
+  Versionsvergleich validierte APK nach Bestätigung in ATAKs lokales
+  Plugin-Verzeichnis `/atak/support/apks/custom` kopieren. Die Installation
+  wählst du anschließend in ATAK selbst aus. Die Signaturprüfung belegt, dass
+  das APK mit dem TAK.gov-Zertifikat signiert ist, das auch die installierte
+  Version trägt; die Zuordnung zu diesem Plugin erfolgt über Paketname und
+  den SHA-256-Wert des Releases.
 
 ## Realistische Einsatzbeispiele
 
@@ -239,39 +251,73 @@ gegen den offiziellen 5.6.0-Quellstand geprüft. Zur Laufzeit liefert ATAK 5.6.0
 die tatsächlichen Core-Klassen.
 
 
-## Version 0.4.2
+## Version 0.4.10
 
-- Abfrage **Eigenposition folgen** bei jeder Auswahl der Eigenposition
-- ohne Häkchen wird die aktuelle Eigenposition als fester Punkt gespeichert
-- mit Häkchen folgt nur der betreffende Start- oder Zielpunkt der Eigenposition
-- Folgestatus wird im Zeichnungsdialog eindeutig angezeigt
-- bewegliche ATAK-Marker werden dauerhaft über ihre UID je Zeichnung verknüpft
-- abgebrochene Punkt- oder Griffbearbeitungen erzeugen keinen leeren Undo-Schritt
-- manuelle Koordinateneingabe weiterhin ausschließlich als MGRS
-- maximale Sektorreichtiefe bleibt fest bei **8 km**
+Fehlerkorrekturen
 
-## Version 0.4.4
+- Ein gezogener Start- oder Zielgriff löst die Verknüpfung mit Eigenposition
+  bzw. ATAK-Marker. Vorher sprang der Punkt bei der nächsten Positionsänderung
+  des verknüpften Objekts zurück.
+- Positionsänderungen (z. B. GPS) lösen nur noch dann ein Neuzeichnen aus, wenn
+  das Objekt zu einer Zeichnung gehört; Bursts werden zu einem Neuzeichnen auf
+  dem UI-Thread zusammengefasst. Verknüpfte Marker werden zwischengespeichert
+  statt bei jedem Neuzeichnen mehrfach gesucht. Ein verknüpfter Marker, der erst
+  später auf der Karte erscheint, wird weiterhin wiedergefunden.
+- Eine fehlerhafte Zeichnung blockiert das Neuzeichnen der übrigen nicht mehr;
+  der Fehler erscheint in der Diagnose.
+- Nach `dispose()` wird nicht mehr neu gezeichnet.
+- Punkte außerhalb des gültigen Koordinatenbereichs (oder nicht endlich) werden
+  nicht mehr übernommen; so lässt sich jede gespeicherte Zeichnung wieder laden.
 
-- Pinch-Zoom wird während der Zielauswahl als Karten-Skalierung erkannt. Die zugehörigen Release-/Click-Ereignisse schließen die Zielauswahl nicht mehr.
-- Nach dem Zoomen kann der Zielpunkt weiter auf der Karte gesetzt oder gezogen werden; normale Einzelberührungen übernehmen ihn weiterhin wie zuvor.
-- Build und JVM-Regressionstests laufen in GitHub Actions. Touch-Verhalten zusätzlich auf ATAK-CIV 5.6.0 prüfen.
+Speicher und Import
 
-## Version 0.4.5
+- Zeichnungen, Sicherung, Undo/Redo und Zählerstand liegen in einer eigenen
+  Plugin-Datei (`jarnsen_mrs_store`). Bestehende Daten aus ATAKs globalen
+  Einstellungen werden beim ersten Start einmalig dorthin verschoben.
+  **Hinweis:** Ein Zurückwechseln auf 0.4.7 oder älter sieht diese Daten nicht
+  mehr. Vorher bitte exportieren.
+- JSON-Import prüft Wertebereiche (Breite ±90°, Länge ±180°), begrenzt Dateien
+  auf 5 MB und 500 Zeichnungen, vergibt doppelte IDs neu, lehnt leere Dateien
+  mit Hinweis ab und zeigt bei „Vorhandene ersetzen“ die Anzahl der
+  betroffenen Zeichnungen. Fülltransparenz wird auf 0–255 begrenzt, Namen auf
+  120 Zeichen.
+- MGRS-Prüfung akzeptiert nur Zonen 1–60 und Zeilenbuchstaben A–V.
 
-- Zielpunkt mit Ein-Finger-Ziehen platzieren, ohne dass die Karte mitwandert
-- Zwei-Finger-Pinch bleibt ATAK zum Zoomen überlassen
+Update-Prüfung
 
-## Version 0.4.6
+- Die automatische tägliche Prüfung ist standardmäßig **aus** und im
+  Plugin-Menü einschaltbar. Die manuelle Prüfung funktioniert unverändert.
+- Ein fehlgeschlagener Abruf (offline, Rate-Limit) sperrt die Prüfung nicht
+  mehr für 24 Stunden, sondern wird nach einer Stunde wiederholt.
+- Der Download wird zuerst im privaten Zwischenspeicher vollständig geprüft
+  (SHA-256, Paketname, Signatur, Release-Version, **neuer als installiert**),
+  dann in den ATAK-Ordner kopiert und die Kopie erneut per SHA-256 geprüft.
+- Der Update-Finder erkennt auch die bereits verwendeten GitHub-Dateinamen
+  `ATAK-Plugin-Jarnsen-Mrs-<Version>-ATAK-5.6.0.apk`; eine TAKgov-Endung ist
+  nicht erforderlich. Die APK wird weiterhin anhand Hash, Paket und Signatur
+  geprüft.
+- Signaturvergleich über alle Signaturgeber (`SigningInfo` ab Android 9).
+- Reste abgebrochener Downloads (`.part`, `.apk.bak`) werden aufgeräumt.
+- Antwortgröße der Release-Abfrage ist begrenzt.
 
-- veraltete Sektor-Overlays beim Neuzeichnen vollständig leeren
-- Transparenz, manuelle Beschriftung und sichtbare Eigenpositions-Auswahl korrigieren
-- GR/MRS-Beschriftung näher an den Zielpfeil setzen
+Build und Doku
 
-## Version 0.4.7
+- `rootProject.buildDir` durch `layout.buildDirectory` ersetzt.
+- CI prüft das heruntergeladene SDK-Archiv gegen die fest eingetragene
+  SHA-256-Prüfsumme des offiziellen ATAK-CIV-5.5.1.8-Releases.
+- Neue Regressionstests für MGRS-Zonen, Strich-Umrechnung und Import-Prüfung.
+- Versionsabschnitte in der README sortiert, Widersprüche zu 0.4.4/0.4.5
+  bereinigt.
 
-- Update-Prüfung erkennt ausschließlich TAK.gov-signierte Jarnsen-Mrs-APK-Assets
-- Download nur nach Bestätigung; SHA-256, Paketname, Version und Signatur werden vor dem Kopieren geprüft
-- geprüfte APK-Datei nach `/atak/support/apks/custom` kopieren; keine automatische Installation
+Hinweise zu 0.4.9 (nicht verändert): Die Zeichnung liegt auf der auf 50 Strich
+gerundeten Achse, die Zeichnungsliste und der Tipp-Dialog zeigen dagegen die
+**gewählte** Zielkoordinate in MGRS. Beide können seitlich um bis zu 25 Strich
+(bei 8 km rund 196 m) voneinander abweichen.
+
+Nicht verändert: Die Gitternord-Umrechnung (`True − Konvergenz`) hängt am
+Vorzeichen von ATAKs `computeGridConvergence` und sollte auf dem Gerät mit
+einem Punkt weit östlich/westlich des Zonenmittelmeridians gegen ein bekanntes
+Referenzergebnis geprüft werden (siehe `docs/TESTING_0.4.10.md`).
 
 ## Version 0.4.9
 
@@ -287,11 +333,45 @@ die tatsächlichen Core-Klassen.
 - Werte beim Zoomen oder Ändern des Zielabstands neu an den verfügbaren Platz
   anpassen
 
+## Version 0.4.7
+
+- Update-Prüfung erkennt ausschließlich TAK.gov-signierte Jarnsen-Mrs-APK-Assets
+- Download nur nach Bestätigung; SHA-256, Paketname, Version und Signatur werden vor dem Kopieren geprüft
+- geprüfte APK-Datei nach `/atak/support/apks/custom` kopieren; keine automatische Installation
+
+## Version 0.4.6
+
+- veraltete Sektor-Overlays beim Neuzeichnen vollständig leeren
+- Transparenz, manuelle Beschriftung und sichtbare Eigenpositions-Auswahl korrigieren
+- GR/MRS-Beschriftung näher an den Zielpfeil setzen
+
+## Version 0.4.5
+
+- Zielpunkt mit Ein-Finger-Ziehen platzieren, ohne dass die Karte mitwandert
+- Zwei-Finger-Pinch bleibt ATAK zum Zoomen überlassen
+
+## Version 0.4.4
+
+- Pinch-Zoom wird während der Zielauswahl als Karten-Skalierung erkannt. Die zugehörigen Release-/Click-Ereignisse schließen die Zielauswahl nicht mehr.
+- Nach dem Zoomen kann der Zielpunkt weiter gesetzt werden (mit 0.4.5 durch Ein-Finger-Ziehen; nach einem Pinch startet eine neue Berührung die Platzierung).
+- Build und JVM-Regressionstests laufen in GitHub Actions. Touch-Verhalten zusätzlich auf ATAK-CIV 5.6.0 prüfen.
+
 ## Version 0.4.3
 
 - Aktionslisten bleiben sichtbar: Statusmeldungen stehen im Menütitel statt im Android-Dialogfeld, das mit der Liste kollidiert
 - Betrifft Plugin-Übersicht, Zeichnungsaktionen und Importauswahl
 - Zeichnungsdaten bleiben mit Version 0.4.2 kompatibel
+
+## Version 0.4.2
+
+- Abfrage **Eigenposition folgen** bei jeder Auswahl der Eigenposition
+- ohne Häkchen wird die aktuelle Eigenposition als fester Punkt gespeichert
+- mit Häkchen folgt nur der betreffende Start- oder Zielpunkt der Eigenposition
+- Folgestatus wird im Zeichnungsdialog eindeutig angezeigt
+- bewegliche ATAK-Marker werden dauerhaft über ihre UID je Zeichnung verknüpft
+- abgebrochene Punkt- oder Griffbearbeitungen erzeugen keinen leeren Undo-Schritt
+- manuelle Koordinateneingabe weiterhin ausschließlich als MGRS
+- maximale Sektorreichtiefe bleibt fest bei **8 km**
 
 ## Version 0.4.1
 

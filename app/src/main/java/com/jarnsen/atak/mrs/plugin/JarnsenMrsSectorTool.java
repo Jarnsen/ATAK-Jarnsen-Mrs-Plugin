@@ -10,7 +10,6 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Bundle;
-import android.preference.PreferenceManager;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -46,6 +45,7 @@ import com.atakmap.android.util.DragMarkerHelper;
 import com.atakmap.coremap.conversions.CoordinateFormat;
 import com.atakmap.coremap.conversions.CoordinateFormatUtilities;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
+import com.atakmap.coremap.log.Log;
 import com.atakmap.coremap.maps.assets.Icon;
 import com.atakmap.coremap.maps.coords.GeoCalculations;
 import com.atakmap.coremap.maps.coords.GeoPoint;
@@ -62,12 +62,16 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Draws the Jarnsen Mrs range sector between two selectable points. Origin and
@@ -101,6 +105,10 @@ public class JarnsenMrsSectorTool extends Tool
             24L * 60L * 60L * 1000L;
     private static final String PREF_UPDATE_CHECK_AT =
             "jarnsen.mrs.update.last_check";
+    private static final String PREF_AUTO_UPDATE_CHECK =
+            "jarnsen.mrs.update.auto_check";
+    private static final long RETRY_AFTER_ERROR_MS = 60L * 60L * 1000L;
+    private static final String TAG = "JarnsenMrsSectorTool";
 
     // Fixed 8 km / ±600 NATO mil geometry.
     private static final double HALF_SECTOR_MIL =
@@ -180,11 +188,23 @@ public class JarnsenMrsSectorTool extends Tool
     private long geometryCacheHits;
     private long geometryCacheMisses;
 
-    private Marker selfMarker;
-    private PointMapItem originItem;
+    private volatile Marker selfMarker;
+    // May be read from the thread that reports point changes.
+    private volatile PointMapItem originItem;
     private GeoPointMetaData originPoint;
-    private PointMapItem targetItem;
+    private volatile PointMapItem targetItem;
     private GeoPointMetaData targetPoint;
+
+    private volatile boolean disposed;
+    private final AtomicBoolean redrawScheduled = new AtomicBoolean(false);
+    // Markers whose movement changes at least one drawing (rebuilt in
+    // refreshLinkedMarkerListeners, read from any thread).
+    private volatile Set<PointMapItem> relevantPointItems =
+            Collections.emptySet();
+    // True while a drawing references a marker UID that is not on the map
+    // (yet). Position updates of the own marker then trigger a redraw so the
+    // link is found again once the marker appears.
+    private volatile boolean hasUnresolvedLinks;
 
     private final MapEventDispatcher.MapEventDispatchListener
             overlayTapListener = this::handleOverlayTap;
@@ -502,7 +522,14 @@ public class JarnsenMrsSectorTool extends Tool
             targetPoint = item.getGeoPointMetaData();
         }
 
-        redraw();
+        // Only redraw when this item is actually part of a drawing, and
+        // coalesce bursts (GPS ticks) into one redraw on the UI thread.
+        if (item == originItem
+                || item == targetItem
+                || relevantPointItems.contains(item)
+                || (hasUnresolvedLinks && item == selfMarker)) {
+            scheduleRedraw();
+        }
     }
 
     @Override
@@ -527,6 +554,7 @@ public class JarnsenMrsSectorTool extends Tool
 
     @Override
     public void dispose() {
+        disposed = true;
         if (selectionActive || activeDialog != null) {
             requestEndTool();
         }
@@ -618,6 +646,10 @@ public class JarnsenMrsSectorTool extends Tool
                                 "Wiederholen",
                                 "Diagnose",
                                 "Nach Update suchen",
+                                drawingStore.preferences().getBoolean(
+                                        PREF_AUTO_UPDATE_CHECK, false)
+                                        ? "Auto-Update-Prüfung: Ein"
+                                        : "Auto-Update-Prüfung: Aus",
                                 "Schließen"
                         },
                         (ignored, which) -> {
@@ -640,6 +672,8 @@ public class JarnsenMrsSectorTool extends Tool
                                 showDiagnosticsDialog();
                             } else if (which == 8) {
                                 maybeCheckForUpdate(true);
+                            } else if (which == 9) {
+                                toggleAutoUpdateCheck();
                             } else {
                                 closeTool();
                             }
@@ -1002,7 +1036,11 @@ public class JarnsenMrsSectorTool extends Tool
         try {
             byte[] bytes;
             try (FileInputStream input = new FileInputStream(file)) {
-                bytes = new byte[(int) file.length()];
+                long length = file.length();
+                if (length <= 0L || length > MrsDrawingStore.MAX_IMPORT_BYTES) {
+                    throw new IllegalStateException("Datei leer oder zu groß");
+                }
+                bytes = new byte[(int) length];
                 int offset = 0;
                 while (offset < bytes.length) {
                     int read = input.read(bytes, offset, bytes.length - offset);
@@ -1021,6 +1059,15 @@ public class JarnsenMrsSectorTool extends Tool
             );
             if (imported == null) {
                 throw new IllegalArgumentException("Ungültiges JSON");
+            }
+            if (imported.isEmpty()) {
+                Toast.makeText(
+                        mapView.getContext(),
+                        "Die Datei enthält keine Zeichnungen.",
+                        Toast.LENGTH_LONG
+                ).show();
+                showTransferDialog();
+                return;
             }
             showImportModeDialog(imported, file.getName());
         } catch (Exception e) {
@@ -1047,7 +1094,8 @@ public class JarnsenMrsSectorTool extends Tool
                 .setItems(
                         new String[]{
                                 "Zusammenführen",
-                                "Vorhandene ersetzen",
+                                "Vorhandene (" + drawings.size()
+                                        + ") ersetzen",
                                 "Abbrechen"
                         },
                         (ignored, which) -> {
@@ -1475,14 +1523,16 @@ public class JarnsenMrsSectorTool extends Tool
                     .getPackageManager()
                     .getPackageInfo(
                             BuildConfig.APPLICATION_ID,
-                            android.content.pm.PackageManager.GET_SIGNATURES
+                            MrsPluginUpdateDownloader.signatureFlags()
                     );
 
-            if (info.signatures == null || info.signatures.length == 0) {
+            android.content.pm.Signature[] signatures =
+                    MrsPluginUpdateDownloader.signaturesOf(info);
+            if (signatures == null || signatures.length == 0) {
                 return "keine Signatur";
             }
 
-            byte[] encoded = info.signatures[0].toByteArray();
+            byte[] encoded = signatures[0].toByteArray();
             X509Certificate certificate = (X509Certificate)
                     CertificateFactory.getInstance("X.509")
                             .generateCertificate(
@@ -1509,9 +1559,30 @@ public class JarnsenMrsSectorTool extends Tool
         }
     }
 
+    private void toggleAutoUpdateCheck() {
+        SharedPreferences prefs = drawingStore.preferences();
+        boolean enabled = !prefs.getBoolean(PREF_AUTO_UPDATE_CHECK, false);
+        prefs.edit().putBoolean(PREF_AUTO_UPDATE_CHECK, enabled).apply();
+        Toast.makeText(
+                mapView.getContext(),
+                enabled
+                        ? "Automatische Update-Prüfung ist eingeschaltet."
+                        : "Automatische Update-Prüfung ist ausgeschaltet.",
+                Toast.LENGTH_SHORT
+        ).show();
+        showWorkspaceMenu();
+    }
+
     private void maybeCheckForUpdate(boolean userRequested) {
-        SharedPreferences prefs = PreferenceManager
-                .getDefaultSharedPreferences(mapView.getContext());
+        SharedPreferences prefs = drawingStore.preferences();
+
+        // The automatic check contacts GitHub, so it is opt-in. The manual
+        // check in the plugin menu always works.
+        if (!userRequested
+                && !prefs.getBoolean(PREF_AUTO_UPDATE_CHECK, false)) {
+            return;
+        }
+
         long now = System.currentTimeMillis();
         long last = prefs.getLong(PREF_UPDATE_CHECK_AT, 0L);
 
@@ -1519,8 +1590,6 @@ public class JarnsenMrsSectorTool extends Tool
                 && now - last < UPDATE_CHECK_INTERVAL_MS) {
             return;
         }
-
-        prefs.edit().putLong(PREF_UPDATE_CHECK_AT, now).apply();
 
         if (userRequested) {
             Toast.makeText(
@@ -1534,9 +1603,19 @@ public class JarnsenMrsSectorTool extends Tool
                 BuildConfig.VERSION_NAME
         );
         MrsUpdateChecker.checkAsync(current, result ->
-                mapView.post(() ->
-                        handleUpdateResult(result, userRequested)
-                )
+                mapView.post(() -> {
+                    // A failed check (offline, rate limit) is retried after
+                    // an hour instead of blocking the next 24 hours.
+                    long stamp = System.currentTimeMillis();
+                    if (result.error != null) {
+                        stamp = stamp - UPDATE_CHECK_INTERVAL_MS
+                                + RETRY_AFTER_ERROR_MS;
+                    }
+                    prefs.edit()
+                            .putLong(PREF_UPDATE_CHECK_AT, stamp)
+                            .apply();
+                    handleUpdateResult(result, userRequested);
+                })
         );
     }
 
@@ -1962,11 +2041,16 @@ public class JarnsenMrsSectorTool extends Tool
         PointMapItem pointItem = (PointMapItem) item;
         pointItem.setPoint(moved);
 
+        // A dragged endpoint becomes a fixed point: release the link to the
+        // self marker / ATAK marker, otherwise its next position update
+        // would move the endpoint back.
         if ("origin".equals(role)) {
+            detachOriginListener();
             originPoint = moved;
             originIsSelfSelection = false;
             originMarkerUid = null;
         } else {
+            detachTargetListener();
             targetPoint = moved;
             targetIsSelfSelection = false;
             targetMarkerUid = null;
@@ -2704,8 +2788,7 @@ public class JarnsenMrsSectorTool extends Tool
             return;
         }
 
-        SharedPreferences prefs = PreferenceManager
-                .getDefaultSharedPreferences(mapView.getContext());
+        SharedPreferences prefs = drawingStore.preferences();
         int number = Math.max(1, prefs.getInt(PREF_NEXT_MRS_NUMBER, 1));
         drawingLabel = "Mrs " + number;
         prefs.edit().putInt(PREF_NEXT_MRS_NUMBER, number + 1).apply();
@@ -2912,16 +2995,26 @@ public class JarnsenMrsSectorTool extends Tool
     private void refreshLinkedMarkerListeners() {
         LinkedHashMap<String, PointMapItem> desired =
                 new LinkedHashMap<>();
+        boolean unresolved = false;
         for (MrsDrawing drawing : drawings.values()) {
             PointMapItem origin = findLinkedMarker(drawing.originMarkerUid);
+            if (origin == null
+                    && emptyToNull(drawing.originMarkerUid) != null) {
+                unresolved = true;
+            }
             if (origin != null && origin != selfMarker) {
                 desired.put(origin.getUID(), origin);
             }
             PointMapItem target = findLinkedMarker(drawing.targetMarkerUid);
+            if (target == null
+                    && emptyToNull(drawing.targetMarkerUid) != null) {
+                unresolved = true;
+            }
             if (target != null && target != selfMarker) {
                 desired.put(target.getUID(), target);
             }
         }
+        hasUnresolvedLinks = unresolved;
 
         for (Map.Entry<String, PointMapItem> entry
                 : new ArrayList<>(linkedMarkerItems.entrySet())) {
@@ -2942,6 +3035,8 @@ public class JarnsenMrsSectorTool extends Tool
             }
             linkedMarkerItems.put(entry.getKey(), marker);
         }
+
+        rebuildRelevantItems();
     }
 
     private static String emptyToNull(String value) {
@@ -2952,6 +3047,9 @@ public class JarnsenMrsSectorTool extends Tool
     }
 
     private void redraw() {
+        if (disposed) {
+            return;
+        }
         clearOverlayItems();
         attachSelfListener();
         refreshLinkedMarkerListeners();
@@ -2968,7 +3066,11 @@ public class JarnsenMrsSectorTool extends Tool
                     && targetPoint != null) {
                 continue;
             }
-            renderStoredDrawing(d);
+            try {
+                renderStoredDrawing(d);
+            } catch (RuntimeException e) {
+                reportRenderFailure(d, e);
+            }
         }
 
         if (originPoint != null
@@ -2996,15 +3098,67 @@ public class JarnsenMrsSectorTool extends Tool
             editor.fillColor = sectorFillColor;
             editor.fillAlpha = Color.alpha(sectorFillColor);
 
-            renderGeometry(editor, origin, target);
+            try {
+                renderGeometry(editor, origin, target);
+            } catch (RuntimeException e) {
+                reportRenderFailure(editor, e);
+            }
         }
+    }
+
+    private void reportRenderFailure(MrsDrawing d, RuntimeException e) {
+        resetRenderState();
+        lastDiagnosticError = "Darstellung "
+                + (d == null ? "?" : d.id) + ": "
+                + e.getClass().getSimpleName();
+        Log.e(TAG, "Zeichnung konnte nicht dargestellt werden", e);
+    }
+
+    private void resetRenderState() {
+        renderDrawing = null;
+        renderDrawingId = null;
+        renderHighlighted = false;
+    }
+
+    private void scheduleRedraw() {
+        if (!redrawScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        mapView.post(() -> {
+            redrawScheduled.set(false);
+            redraw();
+        });
+    }
+
+    private PointMapItem findLinkedMarkerCached(String uid) {
+        String value = emptyToNull(uid);
+        if (value == null) {
+            return null;
+        }
+        PointMapItem cached = linkedMarkerItems.get(value);
+        return cached != null ? cached : findLinkedMarker(value);
+    }
+
+    private void rebuildRelevantItems() {
+        Set<PointMapItem> items = Collections.newSetFromMap(
+                new IdentityHashMap<PointMapItem, Boolean>());
+        items.addAll(linkedMarkerItems.values());
+        if (selfMarker != null) {
+            for (MrsDrawing d : drawings.values()) {
+                if (d.originSelf || d.targetSelf) {
+                    items.add(selfMarker);
+                    break;
+                }
+            }
+        }
+        relevantPointItems = items;
     }
 
     private void renderStoredDrawing(MrsDrawing d) {
         GeoPoint origin;
         GeoPoint target;
-        PointMapItem originMarker = findLinkedMarker(d.originMarkerUid);
-        PointMapItem targetMarker = findLinkedMarker(d.targetMarkerUid);
+        PointMapItem originMarker = findLinkedMarkerCached(d.originMarkerUid);
+        PointMapItem targetMarker = findLinkedMarkerCached(d.targetMarkerUid);
 
         if (d.originSelf
                 && selfMarker != null
@@ -3787,10 +3941,23 @@ public class JarnsenMrsSectorTool extends Tool
         return Math.max(minimum, Math.min(maximum, value));
     }
 
+    /**
+     * A point is usable if it is finite and inside the valid coordinate range.
+     * This is the same range MrsDrawing.fromJson accepts, so every saved
+     * drawing can be loaded again.
+     */
     private static boolean isUsable(GeoPoint point) {
-        return point != null
-                && !Double.isNaN(point.getLatitude())
-                && !Double.isNaN(point.getLongitude());
+        if (point == null) {
+            return false;
+        }
+        double lat = point.getLatitude();
+        double lon = point.getLongitude();
+        return !Double.isNaN(lat)
+                && !Double.isNaN(lon)
+                && !Double.isInfinite(lat)
+                && !Double.isInfinite(lon)
+                && Math.abs(lat) <= 90.0
+                && Math.abs(lon) <= 180.0;
     }
 
     private static double normalizeDegrees(double value) {

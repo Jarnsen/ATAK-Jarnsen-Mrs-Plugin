@@ -11,6 +11,7 @@ import java.util.UUID;
 final class MrsDrawing {
 
     static final int DEFAULT_FILL = 0x2A21B6C7;
+    static final int MAX_LABEL_LENGTH = 120;
 
     final String id;
     String label;
@@ -131,17 +132,20 @@ final class MrsDrawing {
 
     static MrsDrawing fromJson(JSONObject o) throws JSONException {
         MrsDrawing d = new MrsDrawing(o.getString("id"));
-        d.label = o.optString("label", "");
-        d.originLat = o.getDouble("originLat");
-        d.originLon = o.getDouble("originLon");
-        d.targetLat = o.getDouble("targetLat");
-        d.targetLon = o.getDouble("targetLon");
+        String label = o.optString("label", "");
+        d.label = label.length() > MAX_LABEL_LENGTH
+                ? label.substring(0, MAX_LABEL_LENGTH)
+                : label;
+        d.originLat = readCoordinate(o, "originLat", 90.0);
+        d.originLon = readCoordinate(o, "originLon", 180.0);
+        d.targetLat = readCoordinate(o, "targetLat", 90.0);
+        d.targetLon = readCoordinate(o, "targetLon", 180.0);
         d.originSelf = o.optBoolean("originSelf", false);
         d.targetSelf = o.optBoolean("targetSelf", false);
         d.originMarkerUid = o.optString("originMarkerUid", "");
         d.targetMarkerUid = o.optString("targetMarkerUid", "");
         d.fillColor = o.optInt("fillColor", DEFAULT_FILL);
-        d.fillAlpha = o.optInt("fillAlpha", 48);
+        d.fillAlpha = Math.max(0, Math.min(255, o.optInt("fillAlpha", 48)));
         d.showHalfKm = o.optBoolean("showHalfKm", true);
         d.showKm = o.optBoolean("showKm", true);
         d.showRangeLabels = o.optBoolean("showRangeLabels", true);
@@ -151,5 +155,19 @@ final class MrsDrawing {
         d.visible = o.optBoolean("visible", true);
         d.updatedAt = o.optLong("updatedAt", System.currentTimeMillis());
         return d;
+    }
+
+    /** Reads a finite coordinate and rejects values outside +/- limit. */
+    private static double readCoordinate(
+            JSONObject o,
+            String key,
+            double limit) throws JSONException {
+        double value = o.getDouble(key);
+        if (Double.isNaN(value)
+                || Double.isInfinite(value)
+                || Math.abs(value) > limit) {
+            throw new JSONException("Ungültiger Wert für " + key);
+        }
+        return value;
     }
 }

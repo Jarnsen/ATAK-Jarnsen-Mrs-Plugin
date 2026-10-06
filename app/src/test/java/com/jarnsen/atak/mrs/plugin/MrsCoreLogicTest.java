@@ -3,6 +3,7 @@ package com.jarnsen.atak.mrs.plugin;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class MrsCoreLogicTest {
@@ -77,5 +78,39 @@ public class MrsCoreLogicTest {
                 16.0,
                 2.0
         ));
+    }
+
+    @Test
+    public void negativeAndWrappedDegreesStayInsideOneCircle() {
+        assertEquals(4800, MrsCoreLogic.degreesToMil(-90.0));
+        assertEquals(0, MrsCoreLogic.degreesToMil(-360.0));
+        assertEquals(1600, MrsCoreLogic.degreesToMil(450.0));
+        // 359.99 degrees rounds up to a full circle and wraps to 0.
+        assertEquals(0, MrsCoreLogic.degreesToMil(359.99));
+        assertEquals(0, MrsCoreLogic.degreesToMil(Double.NaN));
+    }
+
+    @Test
+    public void mgrsZoneMustBeBetween1And60() {
+        assertTrue(MrsCoreLogic.isStructurallyValidMgrs("1CAA"));
+        assertTrue(MrsCoreLogic.isStructurallyValidMgrs("01CAA"));
+        assertTrue(MrsCoreLogic.isStructurallyValidMgrs("32UMV1234567890"));
+        assertTrue(MrsCoreLogic.isStructurallyValidMgrs("60UMV1234567890"));
+        assertFalse(MrsCoreLogic.isStructurallyValidMgrs("00UMV1234567890"));
+        assertFalse(MrsCoreLogic.isStructurallyValidMgrs("61UMV1234567890"));
+        assertFalse(MrsCoreLogic.isStructurallyValidMgrs("99UMV1234567890"));
+    }
+
+    @Test
+    public void mgrsRejectsOddDigitCountsAndInvalidLetters() {
+        assertFalse(MrsCoreLogic.isStructurallyValidMgrs("32UMV123456789"));
+        assertTrue(MrsCoreLogic.isStructurallyValidMgrs("32UMV123678"));
+        // 100 km row letters only run from A to V.
+        assertFalse(MrsCoreLogic.isStructurallyValidMgrs("32UMW1234567890"));
+        // I and O are never used as band or square letters.
+        assertFalse(MrsCoreLogic.isStructurallyValidMgrs("32IMV1234567890"));
+        assertFalse(MrsCoreLogic.isStructurallyValidMgrs("32UOV1234567890"));
+        assertFalse(MrsCoreLogic.isStructurallyValidMgrs(""));
+        assertFalse(MrsCoreLogic.isStructurallyValidMgrs(null));
     }
 }

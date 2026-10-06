@@ -10,9 +10,24 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 final class MrsDrawingStore {
+
+    /** Maximum size of an import file; larger files are rejected. */
+    static final int MAX_IMPORT_BYTES = 5 * 1000 * 1000;
+    /** Maximum number of drawings accepted from one import file. */
+    static final int MAX_IMPORT_DRAWINGS = 500;
+
+    /**
+     * Private preference file of this plugin. Earlier versions wrote into
+     * ATAK's global default preferences; those keys are migrated once.
+     */
+    private static final String STORE_NAME = "jarnsen_mrs_store";
+    private static final String PREF_MIGRATED = "jarnsen.mrs.migrated.v1";
 
     private static final String PREF_DRAWINGS =
             "jarnsen.mrs.drawings.v3";
@@ -25,10 +40,75 @@ final class MrsDrawingStore {
     private static final String PREF_REDO =
             "jarnsen.mrs.redo.v1";
 
+    private static final String[] LEGACY_KEYS = {
+            PREF_DRAWINGS,
+            PREF_DRAWINGS_BACKUP,
+            PREF_LAST_MGRS,
+            PREF_UNDO,
+            PREF_REDO,
+            "jarnsen.mrs.next_number",
+            "jarnsen.mrs.update.last_check"
+    };
+
     private final SharedPreferences prefs;
 
     MrsDrawingStore(Context context) {
-        prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        prefs = context.getSharedPreferences(
+                STORE_NAME,
+                Context.MODE_PRIVATE
+        );
+        migrateLegacyPreferences(
+                PreferenceManager.getDefaultSharedPreferences(context),
+                prefs
+        );
+    }
+
+    /** Plugin-private preferences (also used for small UI settings). */
+    SharedPreferences preferences() {
+        return prefs;
+    }
+
+    /**
+     * Moves the keys written by versions up to 0.4.7 out of ATAK's global
+     * preferences into the private file. The legacy keys are only removed
+     * after the private file was written successfully.
+     */
+    private static void migrateLegacyPreferences(
+            SharedPreferences legacy,
+            SharedPreferences target) {
+        if (target.getBoolean(PREF_MIGRATED, false)) {
+            return;
+        }
+
+        Map<String, ?> all = legacy.getAll();
+        SharedPreferences.Editor out = target.edit();
+        SharedPreferences.Editor cleanup = legacy.edit();
+        boolean removedAny = false;
+
+        for (String key : LEGACY_KEYS) {
+            if (!all.containsKey(key)) {
+                continue;
+            }
+            Object value = all.get(key);
+            if (value instanceof String) {
+                out.putString(key, (String) value);
+            } else if (value instanceof Integer) {
+                out.putInt(key, (Integer) value);
+            } else if (value instanceof Long) {
+                out.putLong(key, (Long) value);
+            } else if (value instanceof Boolean) {
+                out.putBoolean(key, (Boolean) value);
+            } else {
+                continue;
+            }
+            cleanup.remove(key);
+            removedAny = true;
+        }
+
+        out.putBoolean(PREF_MIGRATED, true);
+        if (out.commit() && removedAny) {
+            cleanup.apply();
+        }
     }
 
     List<MrsDrawing> load() {
@@ -112,32 +192,68 @@ final class MrsDrawingStore {
     }
 
     List<MrsDrawing> importPackage(String json) {
-        if (json == null || json.trim().isEmpty()) {
+        return parseImport(json);
+    }
+
+    /**
+     * Parses an import file. Returns null for anything that is not a valid
+     * export (wrong format, too large, too many drawings, coordinates out of
+     * range). Drawing ids are made unique inside the returned list.
+     */
+    static List<MrsDrawing> parseImport(String json) {
+        if (json == null || json.length() > MAX_IMPORT_BYTES) {
             return null;
         }
 
         String trimmed = json.trim();
-        if (trimmed.startsWith("[")) {
-            return isSnapshotValid(trimmed)
-                    ? decodeDrawings(trimmed)
-                    : null;
+        if (trimmed.isEmpty()) {
+            return null;
         }
 
+        String snapshot;
         try {
-            JSONObject root = new JSONObject(trimmed);
-            if (!"jarnsen-mrs".equals(root.optString("format", ""))) {
+            if (trimmed.startsWith("[")) {
+                snapshot = trimmed;
+            } else {
+                JSONObject root = new JSONObject(trimmed);
+                if (!"jarnsen-mrs".equals(root.optString("format", ""))) {
+                    return null;
+                }
+                snapshot = root.getJSONArray("drawings").toString();
+            }
+            if (new JSONArray(snapshot).length() > MAX_IMPORT_DRAWINGS) {
                 return null;
             }
-            JSONArray drawings = root.getJSONArray("drawings");
-            String snapshot = drawings.toString();
-            return isSnapshotValid(snapshot)
-                    ? decodeDrawings(snapshot)
-                    : null;
         } catch (JSONException ignored) {
             return null;
         }
+
+        if (!isSnapshotValid(snapshot)) {
+            return null;
+        }
+        return withUniqueIds(decodeDrawings(snapshot));
     }
 
+    /** Gives every drawing in the list a distinct id. */
+    static List<MrsDrawing> withUniqueIds(List<MrsDrawing> drawings) {
+        Set<String> seen = new HashSet<>();
+        List<MrsDrawing> out = new ArrayList<>(drawings.size());
+        for (MrsDrawing drawing : drawings) {
+            MrsDrawing value = drawing;
+            if (!seen.add(value.id)) {
+                value = drawing.copyAsNew();
+                seen.add(value.id);
+            }
+            out.add(value);
+        }
+        return out;
+    }
+
+    /**
+     * Drawings are expected to carry finite, in-range coordinates (see
+     * MrsDrawing.fromJson and the isUsable check in the tool); a drawing
+     * that cannot be serialized is skipped.
+     */
     static String encodeDrawings(Collection<MrsDrawing> drawings) {
         JSONArray a = new JSONArray();
         if (drawings != null) {
